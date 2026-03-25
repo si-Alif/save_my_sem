@@ -107,6 +107,13 @@ db/migrations/force:
 db/migrations/version:
 	migrate -path ./migrations -database ${RESCMYSEM_DB_DSN} version
 
+## db/seed/courses : seed initial course rows from seed_courses.sql
+.PHONY: db/seed/courses
+db/seed/courses:
+	@go run ./cmd/seed \
+		-db-dsn=${RESCMYSEM_DB_DSN} \
+		-seed-file=./seeds/seed_courses.sql
+
 # =================================================================
 # QUALITY CONTROL COMMANDS
 # =================================================================
