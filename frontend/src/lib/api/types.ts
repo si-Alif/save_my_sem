@@ -23,6 +23,8 @@ export interface Session {
   end_time: string;
   location: string;
   status: string;
+  cancelled_reason?: string | null;
+  rescheduled_to_session_id?: number | null;
 }
 
 export interface AttendanceLog {
