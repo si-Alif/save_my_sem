@@ -112,12 +112,18 @@ db/migrations/version:
 db/seed/courses:
 	@go run ./cmd/seed \
 		-db-dsn=${RESCMYSEM_DB_DSN} \
-		-seed-file=./seed_courses.sql
+		-seed-file=./seeds/seed_courses.sql
 
 ## db/sessions/generate : generate class sessions from schedule rules
 .PHONY: db/sessions/generate
 db/sessions/generate:
 	@go run ./cmd/sessiongen -db-dsn=${RESCMYSEM_DB_DSN}
+
+## db/seed/schedule FILE=path : seed schedule rules from TSV (course_code based)
+.PHONY: db/seed/schedule
+db/seed/schedule:
+	@if [ -z "${FILE}" ]; then echo "Missing FILE=..."; exit 1; fi
+	@go run ./cmd/scheduleseed -db-dsn=${RESCMYSEM_DB_DSN} -file=${FILE}
 
 # =================================================================
 # QUALITY CONTROL COMMANDS

@@ -22,5 +22,18 @@ func (app *application) routes() http.Handler {
 	// token routes
 	router.HandlerFunc(http.MethodPost, "/v1/tokens/authentication", app.createAuthenticationTokenHandler)
 
+	// semester config routes
+	router.HandlerFunc(http.MethodPost, "/v1/semesters/activate", app.activateSemesterHandler)
+	router.HandlerFunc(http.MethodGet, "/v1/semesters/active", app.getActiveSemesterHandler)
+
+	// course enrollment routes
+	router.HandlerFunc(http.MethodPost, "/v1/courses/enroll", app.enrollUserInCourseHandler)
+	router.HandlerFunc(http.MethodGet, "/v1/users/:id/courses", app.listUserCoursesHandler)
+	router.HandlerFunc(http.MethodPut, "/v1/enrollments/:id", app.updateEnrollmentStatusHandler)
+
+	// attendance routes
+	router.HandlerFunc(http.MethodPost, "/v1/attendance", app.markAttendanceHandler)
+	router.HandlerFunc(http.MethodGet, "/v1/users/:id/attendance", app.listUserAttendanceHandler)
+
 	return app.recoverPanic(app.rateLimit(app.authenticate(router)))
 }

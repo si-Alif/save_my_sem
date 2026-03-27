@@ -39,11 +39,6 @@ func (g *SessionGenerator) GenerateSessions(ctx context.Context) (int64, error) 
 		return 0, err
 	}
 
-	enrollments, err := g.activeEnrollments(ctx)
-	if err != nil {
-		return 0, err
-	}
-
 	var inserted int64
 	for _, r := range rules {
 		ruleStart := maxDate(r.EffectiveFrom, sem.StartDate)
@@ -53,22 +48,15 @@ func (g *SessionGenerator) GenerateSessions(ctx context.Context) (int64, error) 
 				if isWeekend(d) { // MVP: skip weekends
 					continue
 				}
-				for _, uc := range enrollments[r.CourseID] {
-					rows, err := g.insertSession(ctx, uc.UserCourseID, uc.CourseID, d, r.StartTime, r.EndTime, r.Location)
-					if err != nil {
-						return inserted, err
-					}
-					inserted += rows
+				rows, err := g.insertSession(ctx, r.CourseID, d, r.StartTime, r.EndTime, r.Location)
+				if err != nil {
+					return inserted, err
 				}
+				inserted += rows
 			}
 		}
 	}
 	return inserted, nil
-}
-
-type enrollment struct {
-	UserCourseID int64
-	CourseID     int64
 }
 
 func (g *SessionGenerator) activeSemester(ctx context.Context) (*SemesterWindow, error) {
@@ -99,44 +87,46 @@ func (g *SessionGenerator) activeRules(ctx context.Context, semStart, semEnd tim
 
 	var out []Rule
 	for rows.Next() {
-		var r Rule
-		if err := rows.Scan(&r.ID, &r.CourseID, &r.DayOfWeek, &r.StartTime, &r.EndTime, &r.Location, &r.EffectiveFrom, &r.EffectiveTo); err != nil {
+		var (
+			stStr  string
+			endStr string
+			r      Rule
+			loc    sql.NullString
+		)
+
+		if err := rows.Scan(&r.ID, &r.CourseID, &r.DayOfWeek, &stStr, &endStr, &loc, &r.EffectiveFrom, &r.EffectiveTo); err != nil {
 			return nil, err
 		}
+		st, err := time.Parse("15:04:05", stStr)
+		if err != nil {
+			return nil, err
+		}
+		r.StartTime = st
+
+		end, err := time.Parse("15:04:05", endStr)
+		if err != nil {
+			return nil, err
+		}
+		r.EndTime = end
+
+		r.Location = "TBD"
+
+		if loc.Valid {
+			r.Location = loc.String
+		}
+
 		out = append(out, r)
 	}
 	return out, rows.Err()
 }
 
-func (g *SessionGenerator) activeEnrollments(ctx context.Context) (map[int64][]enrollment, error) {
-	const q = `
-        SELECT id, course_id
-        FROM user_courses
-        WHERE status = 'active'`
-	rows, err := g.DB.QueryContext(ctx, q)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	out := make(map[int64][]enrollment)
-	for rows.Next() {
-		var e enrollment
-		if err := rows.Scan(&e.UserCourseID, &e.CourseID); err != nil {
-			return nil, err
-		}
-		out[e.CourseID] = append(out[e.CourseID], e)
-	}
-	return out, rows.Err()
-}
-
 // insertSession is idempotent: ON CONFLICT DO NOTHING on (user_courses_id, session_date)
-func (g *SessionGenerator) insertSession(ctx context.Context, userCourseID, courseID int64, d time.Time, start, end time.Time, location string) (int64, error) {
+func (g *SessionGenerator) insertSession(ctx context.Context, courseID int64, d time.Time, start, end time.Time, location string) (int64, error) {
 	const q = `
-        INSERT INTO class_sessions (user_courses_id, course_id, session_date, start_time, end_time, location)
-        VALUES ($1, $2, $3, $4, $5, $6)
-        ON CONFLICT (user_courses_id, session_date) DO NOTHING`
-	result, err := g.DB.ExecContext(ctx, q, userCourseID, courseID, d, start, end, location)
+        INSERT INTO class_sessions (course_id, session_date, start_time, end_time, location)
+        VALUES ($1, $2, $3, $4, $5)
+        ON CONFLICT DO NOTHING`
+	result, err := g.DB.ExecContext(ctx, q, courseID, d, start, end, location)
 	if err != nil {
 		return 0, err
 	}

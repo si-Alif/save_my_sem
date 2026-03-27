@@ -43,6 +43,10 @@ func (app *application) notFoundResponse(w http.ResponseWriter, r *http.Request)
 	app.errorResponse(w, r, http.StatusNotFound, "The requested resource couldn't be found")
 }
 
+func (app *application) invalidIDResponse(w http.ResponseWriter, r *http.Request) {
+	app.errorResponse(w, r, http.StatusBadRequest, "The provided ID is not valid")
+}
+
 func (app *application) badRequestResponse(w http.ResponseWriter, r *http.Request, err error) {
 	app.errorResponse(w, r, http.StatusBadRequest, err.Error())
 }

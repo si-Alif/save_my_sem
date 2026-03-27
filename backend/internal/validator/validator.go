@@ -5,8 +5,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
-
-
+	"time"
 )
 
 var (
@@ -83,6 +82,20 @@ func ValidURL(value string) bool {
 
 func PermittedValue[T comparable](value T, permittedValues ...T) bool {
 	return slices.Contains(permittedValues, value)
+}
+
+// ---- Domain-specific helpers ----
+
+func ValidStatus(value string, permitted ...string) bool {
+	return PermittedValue(value, permitted...)
+}
+
+func ValidDayOfWeek(d int) bool {
+	return d >= 0 && d <= 6
+}
+
+func ValidTimeOrder(start, end time.Time) bool {
+	return start.Before(end)
 }
 
 func (v *Validator) Matches(val string, reg regexp.Regexp) bool {
