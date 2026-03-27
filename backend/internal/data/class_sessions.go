@@ -71,9 +71,9 @@ func (m ClassSessionModel) List(ctx context.Context, courseIDs []int64, status *
 	}
 
 	q := `
-        SELECT id, course_id, session_date, start_time, end_time, location,
-               status, cancelled_reason, rescheduled_to_session_id, created_at, updated_at
-        FROM class_sessions ` + where + `
+	        SELECT id, course_id, session_date, start_time::text, end_time::text, location,
+	               status, cancelled_reason, rescheduled_to_session_id, created_at, updated_at
+	        FROM class_sessions ` + where + `
         ORDER BY ` + filters.SortColumn() + " " + filters.SortDirection() + `, id ASC
 	LIMIT $` + strconv.Itoa(len(args)+1) + ` OFFSET $` + strconv.Itoa(len(args)+2)
 
@@ -87,12 +87,23 @@ func (m ClassSessionModel) List(ctx context.Context, courseIDs []int64, status *
 	var sessions []ClassSession
 	for rows.Next() {
 		var cs ClassSession
+		var startStr, endStr string
 		if err := rows.Scan(
-			&cs.ID, &cs.CourseID, &cs.SessionDate, &cs.StartTime, &cs.EndTime, &cs.Location,
+			&cs.ID, &cs.CourseID, &cs.SessionDate, &startStr, &endStr, &cs.Location,
 			&cs.Status, &cs.CancelledReason, &cs.RescheduledToSessionID, &cs.CreatedAt, &cs.UpdatedAt,
 		); err != nil {
 			return nil, Metadata{}, err
 		}
+		st, err := parseSQLTime(startStr)
+		if err != nil {
+			return nil, Metadata{}, err
+		}
+		et, err := parseSQLTime(endStr)
+		if err != nil {
+			return nil, Metadata{}, err
+		}
+		cs.StartTime = st
+		cs.EndTime = et
 		sessions = append(sessions, cs)
 	}
 
@@ -101,15 +112,16 @@ func (m ClassSessionModel) List(ctx context.Context, courseIDs []int64, status *
 
 func (m ClassSessionModel) Get(ctx context.Context, id int64) (*ClassSession, error) {
 	const q = `
-        SELECT id, course_id, session_date, start_time, end_time, location,
-               status, cancelled_reason, rescheduled_to_session_id, created_at, updated_at
-        FROM class_sessions
-        WHERE id = $1`
+	        SELECT id, course_id, session_date, start_time::text, end_time::text, location,
+	               status, cancelled_reason, rescheduled_to_session_id, created_at, updated_at
+	        FROM class_sessions
+	        WHERE id = $1`
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	var cs ClassSession
+	var startStr, endStr string
 	err := m.DB.QueryRowContext(ctx, q, id).Scan(
-		&cs.ID, &cs.CourseID, &cs.SessionDate, &cs.StartTime, &cs.EndTime, &cs.Location,
+		&cs.ID, &cs.CourseID, &cs.SessionDate, &startStr, &endStr, &cs.Location,
 		&cs.Status, &cs.CancelledReason, &cs.RescheduledToSessionID, &cs.CreatedAt, &cs.UpdatedAt,
 	)
 	if err != nil {
@@ -118,5 +130,28 @@ func (m ClassSessionModel) Get(ctx context.Context, id int64) (*ClassSession, er
 		}
 		return nil, err
 	}
+	if cs.StartTime, err = parseSQLTime(startStr); err != nil {
+		return nil, err
+	}
+	if cs.EndTime, err = parseSQLTime(endStr); err != nil {
+		return nil, err
+	}
 	return &cs, nil
+}
+
+// parseSQLTime parses a Postgres time string (with or without fractional seconds) into time.Time.
+func parseSQLTime(s string) (time.Time, error) {
+	if s == "" {
+		return time.Time{}, nil
+	}
+	layouts := []string{"15:04:05", "15:04:05.999999", time.RFC3339}
+	var lastErr error
+	for _, layout := range layouts {
+		t, err := time.Parse(layout, s)
+		if err == nil {
+			return t, nil
+		}
+		lastErr = err
+	}
+	return time.Time{}, lastErr
 }

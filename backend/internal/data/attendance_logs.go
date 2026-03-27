@@ -85,16 +85,19 @@ func (m AttendanceLogModel) ListByUserFiltered(ctx context.Context, userID int64
 	nextParam := func() string { return "$" + strconv.Itoa(len(args)+1) }
 
 	if courseID != nil {
+		placeholder := nextParam()
+		where += " AND cs.course_id = " + placeholder
 		args = append(args, *courseID)
-		where += " AND cs.course_id = " + nextParam()
 	}
 	if from != nil {
+		placeholder := nextParam()
+		where += " AND cs.session_date >= " + placeholder
 		args = append(args, *from)
-		where += " AND cs.session_date >= " + nextParam()
 	}
 	if to != nil {
+		placeholder := nextParam()
+		where += " AND cs.session_date <= " + placeholder
 		args = append(args, *to)
-		where += " AND cs.session_date <= " + nextParam()
 	}
 
 	countQ := "SELECT count(*) FROM attendance_logs al JOIN class_sessions cs ON cs.id = al.class_session_id " + where
@@ -147,16 +150,19 @@ func (m AttendanceLogModel) Summary(ctx context.Context, userID int64, courseID 
 
 	// total sessions (all sessions matching filters, independent of attendance status)
 	if courseID != nil {
+		placeholder := nextParam()
+		where += " AND cs.course_id = " + placeholder
 		args = append(args, *courseID)
-		where += " AND cs.course_id = " + nextParam()
 	}
 	if from != nil {
+		placeholder := nextParam()
+		where += " AND cs.session_date >= " + placeholder
 		args = append(args, *from)
-		where += " AND cs.session_date >= " + nextParam()
 	}
 	if to != nil {
+		placeholder := nextParam()
+		where += " AND cs.session_date <= " + placeholder
 		args = append(args, *to)
-		where += " AND cs.session_date <= " + nextParam()
 	}
 
 	var summary AttendanceSummary
@@ -171,16 +177,19 @@ func (m AttendanceLogModel) Summary(ctx context.Context, userID int64, courseID 
 	nextAtt := func() string { return "$" + strconv.Itoa(len(attArgs)+1) }
 
 	if courseID != nil {
+		placeholder := nextAtt()
+		where += " AND cs.course_id = " + placeholder
 		attArgs = append(attArgs, *courseID)
-		where += " AND cs.course_id = " + nextAtt()
 	}
 	if from != nil {
+		placeholder := nextAtt()
+		where += " AND cs.session_date >= " + placeholder
 		attArgs = append(attArgs, *from)
-		where += " AND cs.session_date >= " + nextAtt()
 	}
 	if to != nil {
+		placeholder := nextAtt()
+		where += " AND cs.session_date <= " + placeholder
 		attArgs = append(attArgs, *to)
-		where += " AND cs.session_date <= " + nextAtt()
 	}
 
 	countsQ := `
