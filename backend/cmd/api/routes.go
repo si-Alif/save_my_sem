@@ -34,6 +34,10 @@ func (app *application) routes() http.Handler {
 	// attendance routes
 	router.HandlerFunc(http.MethodPost, "/v1/attendance", app.markAttendanceHandler)
 	router.HandlerFunc(http.MethodGet, "/v1/users/:id/attendance", app.listUserAttendanceHandler)
+	router.HandlerFunc(http.MethodGet, "/v1/users/:id/attendance/summary", app.getAttendanceSummaryHandler)
+
+	// session routes
+	router.HandlerFunc(http.MethodGet, "/v1/users/:id/sessions", app.listUserSessionsHandler)
 
 	return app.recoverPanic(app.rateLimit(app.authenticate(router)))
 }
