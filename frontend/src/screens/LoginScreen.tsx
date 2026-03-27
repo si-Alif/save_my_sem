@@ -13,6 +13,14 @@ export default function LoginScreen() {
   const [userId, setUserId] = useState('');
 
   const onSubmit = async () => {
+    if (!email || !password) {
+      Alert.alert('Login failed', 'Email and password are required');
+      return;
+    }
+    if (password.length < 8) {
+      Alert.alert('Login failed', 'Password must be at least 8 characters');
+      return;
+    }
     try {
       await login({ email, password, userId: userId ? Number(userId) : undefined });
     } catch (err: any) {

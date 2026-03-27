@@ -25,7 +25,11 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}, overr
     let message = res.statusText;
     try {
       const body = await res.json();
-      message = body.error || message;
+      if (body?.error) message = body.error;
+      else if (body?.errors && typeof body.errors === 'object') {
+        const first = Object.values(body.errors as Record<string, string[]>)[0];
+        if (Array.isArray(first) && first.length > 0) message = first[0];
+      }
     } catch (_) {
       // ignore
     }

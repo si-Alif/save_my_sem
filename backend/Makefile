@@ -59,6 +59,7 @@ db-max-idle-time ?= 15m
 limiter-rps ?= 2
 limiter-burst ?= 4
 limiter-enabled ?= true
+trusted-origins ?= http://localhost:8081
 
 .PHONY: run/api
 run/api:
@@ -71,7 +72,8 @@ run/api:
 		-db-max-idle-time=${db-max-idle-time} \
 		-limiter-rps=${limiter-rps} \
 		-limiter-burst=${limiter-burst} \
-		-limiter-enabled=${limiter-enabled}
+		-limiter-enabled=${limiter-enabled}\
+		-cors-allowed-origins=${trusted-origins}\
 
 ## db/psql : connect to the Greenlight database using psql
 .PHONY: db/psql

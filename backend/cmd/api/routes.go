@@ -39,5 +39,5 @@ func (app *application) routes() http.Handler {
 	// session routes
 	router.HandlerFunc(http.MethodGet, "/v1/users/:id/sessions", app.listUserSessionsHandler)
 
-	return app.recoverPanic(app.rateLimit(app.authenticate(router)))
+	return app.recoverPanic(app.enableCORS(app.rateLimit(app.authenticate(router))))
 }

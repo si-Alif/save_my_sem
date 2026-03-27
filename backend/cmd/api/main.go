@@ -6,6 +6,7 @@ import (
 	"flag"
 	"log/slog"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -39,6 +40,9 @@ type config struct {
 		username string
 		password string
 		sender string
+	}
+	cors struct{
+		allowedOrigins []string
 	}
 }
 
@@ -75,10 +79,16 @@ func main() {
 	flag.StringVar(&cfg.smtp.password, "smtp-password", "7c72dadc7e8c16", "SMTP server password")
 	flag.StringVar(&cfg.smtp.sender, "smtp-sender", "noreply@rescmysem.student.net", "Email address of the sender")
 
+	// CORS settings
+	flag.Func("cors-allowed-origins", "Trusted origins for CORS (space separated)", func(val string) error {
+		cfg.cors.allowedOrigins = strings.Fields(val)
+		return nil
+	})
+
 
 	flag.Parse()
 
-		logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
 	// open a database connection pool, verify connectivity, and handle any errors
 	db, err := openDB(cfg)
