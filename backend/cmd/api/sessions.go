@@ -132,7 +132,7 @@ func (app *application) listUserSessionsHandler(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	sessions, metadata, err := app.models.ClassSessions.List(ctx, courseIDs, status, from, to, on, filters)
+	sessions, metadata, err := app.models.ClassSessions.List(ctx, courseIDs, status, from, to, on, filters, &userID)
 	if err != nil {
 		app.serverErrorResponse(w, r, err)
 		return

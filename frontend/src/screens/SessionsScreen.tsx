@@ -1,15 +1,16 @@
 import React, { useMemo, useState } from 'react';
 import { ActivityIndicator, FlatList, RefreshControl, StyleSheet, View, Pressable } from 'react-native';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Screen } from '../components/Screen';
 import { Text } from '../components/Text';
 import { Card } from '../components/Card';
 import { Button } from '../components/Button';
 import { colors, spacing } from '../theme';
-import { listUserSessions, markAttendance } from '../lib/api';
+import { listUserSessions, markAttendance, listUserCourses, listUserAttendance } from '../lib/api';
 import { useAuth } from '../state/AuthProvider';
 
 const DEFAULT_FILTER_FROM = new Date().toISOString().slice(0, 10); // today, YYYY-MM-DD
+const DEFAULT_SEMESTER = 'odd-2026';
 
 const statusColors: Record<string, string> = {
   scheduled: colors.primary,
@@ -19,18 +20,23 @@ const statusColors: Record<string, string> = {
 };
 
 function formatDate(dateStr: string) {
-  const d = new Date(dateStr);
-  return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+  if (!dateStr) return '—';
+  const [y, m, d] = dateStr.split('-').map((n) => Number(n));
+  const date = new Date(Date.UTC(y, (m || 1) - 1, d || 1));
+  return date.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
 }
 
 function formatTime(timeStr: string) {
-  if (!timeStr) return '';
-  return timeStr.slice(0, 5); // HH:MM
+  if (!timeStr) return '—';
+  // Handles both plain SQL time (09:40:00) and RFC3339-like values (0000-01-01T09:40:00Z).
+  const m = timeStr.match(/(\d{2}:\d{2})/);
+  return m?.[1] ?? '—';
 }
 
 export default function SessionsScreen() {
   const { userId } = useAuth();
   const [showUpcoming, setShowUpcoming] = useState(true);
+  const queryClient = useQueryClient();
 
   const filters = useMemo(() => ({ from: showUpcoming ? DEFAULT_FILTER_FROM : undefined }), [showUpcoming]);
 
@@ -40,11 +46,54 @@ export default function SessionsScreen() {
     enabled: !!userId,
   });
 
+  const coursesQuery = useQuery({
+    queryKey: ['courses', userId, DEFAULT_SEMESTER, 'meta'],
+    queryFn: () => listUserCourses(userId!, DEFAULT_SEMESTER),
+    enabled: !!userId,
+  });
+
+  const attendanceQuery = useQuery({
+    queryKey: ['attendance', userId, 'for-sessions'],
+    queryFn: () => listUserAttendance(userId!, { page_size: 500 }),
+    enabled: !!userId,
+  });
+
   const mutation = useMutation({
     mutationFn: ({ sessionId, status }: { sessionId: number; status: 'present' | 'absent' | 'late' | 'excused' }) =>
       markAttendance({ user_id: userId!, class_session_id: sessionId, status }),
-    onSuccess: () => {
+    onMutate: async ({ sessionId }) => {
+      await Promise.all([
+        queryClient.cancelQueries({ queryKey: ['sessions', userId, filters] }),
+        queryClient.cancelQueries({ queryKey: ['attendance', userId, 'for-sessions'] }),
+      ]);
+      const prev = {
+        sessions: queryClient.getQueryData<any>(['sessions', userId, filters]),
+        attendance: queryClient.getQueryData<any>(['attendance', userId, 'for-sessions']),
+      };
+      if (prev?.sessions) {
+        queryClient.setQueryData(['sessions', userId, filters], {
+          ...prev.sessions,
+          sessions: (prev.sessions.sessions || []).filter((s: any) => s.id !== sessionId),
+        });
+      }
+      // Also optimistically add to attendance set so filtering stays applied
+      if (prev?.attendance) {
+        const attList = prev.attendance.attendance || [];
+        queryClient.setQueryData(['attendance', userId, 'for-sessions'], {
+          ...prev.attendance,
+          attendance: [...attList, { class_session_id: sessionId }],
+        });
+      }
+      return { prev };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.prev?.sessions) queryClient.setQueryData(['sessions', userId, filters], ctx.prev.sessions);
+      if (ctx?.prev?.attendance)
+        queryClient.setQueryData(['attendance', userId, 'for-sessions'], ctx.prev.attendance);
+    },
+    onSettled: () => {
       sessionsQuery.refetch();
+      attendanceQuery.refetch();
     },
   });
 
@@ -54,6 +103,23 @@ export default function SessionsScreen() {
   };
 
   const sessions = sessionsQuery.data?.sessions ?? [];
+
+  const courseMeta = useMemo(() => {
+    const map = new Map<number, { code?: string; name?: string }>();
+    coursesQuery.data?.courses?.forEach((c: any) => {
+      const cid = c.course_id || c.id;
+      if (cid) map.set(cid, { code: c.course_code || c.code, name: c.course_name || c.name });
+    });
+    return map;
+  }, [coursesQuery.data]);
+
+  const markedSet = useMemo(() => {
+    const set = new Set<number>();
+    attendanceQuery.data?.attendance?.forEach((a: any) => {
+      if (a.class_session_id) set.add(a.class_session_id);
+    });
+    return set;
+  }, [attendanceQuery.data]);
 
   return (
     <Screen scroll={false} style={styles.safePad}>
@@ -90,7 +156,7 @@ export default function SessionsScreen() {
 
       {!sessionsQuery.isLoading && !sessionsQuery.isError && (
         <FlatList
-          data={sessions}
+          data={sessions.filter((s) => !markedSet.has(s.id))}
           keyExtractor={(item) => String(item.id)}
           contentContainerStyle={styles.list}
           refreshControl={
@@ -102,11 +168,15 @@ export default function SessionsScreen() {
           }
           renderItem={({ item }) => {
             const badgeColor = statusColors[item.status] || colors.textMuted;
+            const meta = courseMeta.get(item.course_id) || {};
+            const courseLabel = meta.code || `Course #${item.course_id}`;
+            const nameLabel = meta.name || 'Untitled course';
             return (
               <Card style={styles.card}>
                 <View style={styles.rowBetween}>
                   <View style={{ flex: 1, gap: spacing.xs }}>
-                    <Text weight="700">Course #{item.course_id}</Text>
+                    <Text weight="700">{courseLabel}</Text>
+                    <Text>{nameLabel}</Text>
                     <Text muted>
                       {formatDate(item.session_date)} · {formatTime(item.start_time)} - {formatTime(item.end_time)}
                     </Text>

@@ -27,7 +27,8 @@ type ClassSessionModel struct {
 }
 
 // List returns sessions filtered by courses/date range with pagination and sorting.
-func (m ClassSessionModel) List(ctx context.Context, courseIDs []int64, status *string, from, to, on *time.Time, filters Filters) ([]ClassSession, Metadata, error) {
+// If excludeMarkedForUserID is not nil, sessions already marked by that user are excluded.
+func (m ClassSessionModel) List(ctx context.Context, courseIDs []int64, status *string, from, to, on *time.Time, filters Filters, excludeMarkedForUserID *int64) ([]ClassSession, Metadata, error) {
 	where := "WHERE 1=1"
 	args := []any{}
 
@@ -59,6 +60,11 @@ func (m ClassSessionModel) List(ctx context.Context, courseIDs []int64, status *
 		if to != nil {
 			add("session_date <= "+nextParam(), *to)
 		}
+	}
+
+	if excludeMarkedForUserID != nil {
+		where += " AND NOT EXISTS (SELECT 1 FROM attendance_logs al WHERE al.class_session_id = class_sessions.id AND al.user_id = " + nextParam() + ")"
+		args = append(args, *excludeMarkedForUserID)
 	}
 
 	countQ := "SELECT count(*) FROM class_sessions " + where
