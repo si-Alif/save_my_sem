@@ -1,12 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
 import { useQueries, useQuery } from '@tanstack/react-query';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Screen } from '../components/Screen';
 import { Text } from '../components/Text';
 import { Card } from '../components/Card';
 import { spacing } from '../theme';
-import { getAttendanceSummary, listUserCourses } from '../lib/api';
+import { getAttendanceSummary, listUserCourses, listUserSessions } from '../lib/api';
 import { Course } from '../lib/api/types';
 import { useAuth } from '../state/AuthProvider';
 
@@ -32,6 +33,19 @@ const boardGradients: [string, string][] = [
   ['#E3F4F6', '#F4FBFC'],
   ['#F7E1EC', '#FFF1F7'],
 ];
+
+type CalendarCell = {
+  key: string;
+  day: number;
+  allCount: number;
+  selectedCount: number;
+  isToday: boolean;
+};
+
+type CalendarMemo = {
+  cells: Array<CalendarCell | null>;
+  heaviest: { key: string; count: number } | null;
+};
 
 function courseID(course: Course) {
   return course.course_id ?? course.id;
@@ -72,8 +86,52 @@ function profileFor(percentage: number) {
   };
 }
 
+function formatYMD(date: Date) {
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
+  const dd = String(date.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function extractYMD(raw: string) {
+  const match = raw.match(/(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) return null;
+  return `${match[1]}-${match[2]}-${match[3]}`;
+}
+
+function startOfWeek(date: Date) {
+  const d = new Date(date);
+  const day = (d.getDay() + 6) % 7; // Monday=0
+  d.setDate(d.getDate() - day);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function getWeekWindows(count: number) {
+  const today = new Date();
+  const base = startOfWeek(today);
+  const windows: Array<{ label: string; from: string; to: string }> = [];
+  for (let i = count - 1; i >= 0; i -= 1) {
+    const start = new Date(base);
+    start.setDate(start.getDate() - i * 7);
+    const end = new Date(start);
+    end.setDate(start.getDate() + 6);
+    windows.push({
+      label: `${String(start.getMonth() + 1).padStart(2, '0')}/${String(start.getDate()).padStart(2, '0')}`,
+      from: formatYMD(start),
+      to: formatYMD(end),
+    });
+  }
+  return windows;
+}
+
+function monthName(date: Date) {
+  return date.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+}
+
 export default function SummaryScreen() {
   const { userId } = useAuth();
+  const navigation = useNavigation<any>();
   const [selectedCourseID, setSelectedCourseID] = useState<number | null>(null);
 
   const coursesQuery = useQuery({
@@ -126,6 +184,33 @@ export default function SummaryScreen() {
   const selectedQueryIndex = courses.findIndex((course) => courseID(course) === selectedCourseID);
   const selectedQueryState = selectedQueryIndex >= 0 ? summaryQueries[selectedQueryIndex] : undefined;
 
+  const trendWindows = useMemo(() => getWeekWindows(4), []);
+
+  const trendQueries = useQueries({
+    queries: trendWindows.map((w) => ({
+      queryKey: ['attendance-trend', userId, selectedCourseID, w.from, w.to],
+      queryFn: () => getAttendanceSummary(userId!, { course_id: selectedCourseID || undefined, from: w.from, to: w.to }),
+      enabled: !!userId && !!selectedCourseID,
+    })),
+  });
+
+  const now = new Date();
+  const monthStart = useMemo(() => new Date(now.getFullYear(), now.getMonth(), 1), [now]);
+  const monthEnd = useMemo(() => new Date(now.getFullYear(), now.getMonth() + 1, 0), [now]);
+  const todayYMD = formatYMD(now);
+
+  const monthSessionsQuery = useQuery({
+    queryKey: ['calendar-sessions', userId, formatYMD(monthStart), formatYMD(monthEnd)],
+    queryFn: () =>
+      listUserSessions(userId!, {
+        from: todayYMD,
+        to: formatYMD(monthEnd),
+        page: 1,
+        page_size: 100,
+      }),
+    enabled: !!userId,
+  });
+
   const rankedCourses = useMemo(() => {
     return courses
       .map((course) => {
@@ -142,6 +227,54 @@ export default function SummaryScreen() {
       .filter((entry) => entry.courseID > 0)
       .sort((a, b) => b.percentage - a.percentage);
   }, [courses, summaryByCourse]);
+
+  const trendRows = useMemo(() => {
+    return trendWindows.map((window, idx) => {
+      const data: any = trendQueries[idx]?.data;
+      return {
+        label: window.label,
+        percentage: data?.attendance_percentage ?? 0,
+        sessions: data?.summary?.total_sessions ?? 0,
+      };
+    });
+  }, [trendWindows, trendQueries]);
+
+  const calendarData = useMemo<CalendarMemo>(() => {
+    const allCounts = new Map<string, number>();
+    const selectedCounts = new Map<string, number>();
+    (monthSessionsQuery.data?.sessions || []).forEach((session: any) => {
+      const key = extractYMD(session.session_date);
+      if (!key) return;
+      allCounts.set(key, (allCounts.get(key) || 0) + 1);
+      if (selectedCourseID && session.course_id === selectedCourseID) {
+        selectedCounts.set(key, (selectedCounts.get(key) || 0) + 1);
+      }
+    });
+
+    const cells: Array<CalendarCell | null> = [];
+    const offset = (monthStart.getDay() + 6) % 7; // Monday-first
+    for (let i = 0; i < offset; i += 1) cells.push(null);
+
+    const daysInMonth = monthEnd.getDate();
+    for (let day = 1; day <= daysInMonth; day += 1) {
+      const d = new Date(monthStart.getFullYear(), monthStart.getMonth(), day);
+      const key = formatYMD(d);
+      cells.push({
+        key,
+        day,
+        allCount: allCounts.get(key) || 0,
+        selectedCount: selectedCounts.get(key) || 0,
+        isToday: key === todayYMD,
+      });
+    }
+
+    let heaviest: { key: string; count: number } | null = null;
+    allCounts.forEach((count, key) => {
+      if (!heaviest || count > heaviest.count) heaviest = { key, count };
+    });
+
+    return { cells, heaviest };
+  }, [monthSessionsQuery.data, selectedCourseID, monthStart, monthEnd, todayYMD]);
 
   return (
     <Screen style={styles.container}>
@@ -229,6 +362,15 @@ export default function SummaryScreen() {
                     <Text weight="700" style={styles.markText}>Mark {selectedMark}/10</Text>
                   </View>
                 </View>
+                <Pressable
+                  style={styles.focusActionBtn}
+                  onPress={() => {
+                    if (!selectedCourseID) return;
+                    navigation.navigate('Sessions', { courseId: selectedCourseID });
+                  }}
+                >
+                  <Text weight="700" style={styles.focusActionText}>Open In Sessions</Text>
+                </Pressable>
               </LinearGradient>
 
               <View style={styles.tileWrap}>
@@ -243,8 +385,86 @@ export default function SummaryScreen() {
                 <Text style={styles.insightText}>{selectedProfile.subtitle}</Text>
                 <Text style={styles.insightSubtext}>Total sessions counted: {selectedStats.total_sessions}</Text>
               </Card>
+
+              <Card style={styles.trendCard}>
+                <View style={styles.sectionHeaderNoMargin}>
+                  <Text weight="700" style={styles.sectionTitle}>4-Week Momentum</Text>
+                  <Text style={styles.sectionHint}>course-wise trend</Text>
+                </View>
+                <View style={styles.trendRow}>
+                  {trendRows.map((row) => (
+                    <View key={row.label} style={styles.trendCol}>
+                      <View style={styles.trendTrack}>
+                        <View style={[styles.trendFill, { height: `${Math.max(4, Math.min(100, row.percentage))}%` }]} />
+                      </View>
+                      <Text weight="700" style={styles.trendPct}>{row.percentage.toFixed(0)}%</Text>
+                      <Text style={styles.trendLbl}>{row.label}</Text>
+                    </View>
+                  ))}
+                </View>
+                <Text style={styles.insightSubtext}>Percentages are computed by weekly session windows.</Text>
+              </Card>
             </>
           )}
+
+          <Card style={styles.calendarCard}>
+            <View style={styles.sectionHeaderNoMargin}>
+              <Text weight="700" style={styles.sectionTitle}>Important Days Calendar</Text>
+              <Text style={styles.sectionHint}>{monthName(monthStart)}</Text>
+            </View>
+            <Text style={styles.calendarLead}>
+              This month view uses upcoming sessions to show potential heavy days now, and can later include tasks/exams without redesign.
+            </Text>
+
+            {monthSessionsQuery.isLoading && (
+              <View style={styles.centerCompact}>
+                <ActivityIndicator color={palette.accent} />
+              </View>
+            )}
+
+            {monthSessionsQuery.isError && (
+              <View style={styles.centerCompact}>
+                <Text style={{ color: palette.body }}>Could not load calendar data.</Text>
+              </View>
+            )}
+
+            {!monthSessionsQuery.isLoading && !monthSessionsQuery.isError && (
+              <>
+                <View style={styles.weekHeaderRow}>
+                  {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((d) => (
+                    <Text key={d} style={styles.weekHeaderText}>{d}</Text>
+                  ))}
+                </View>
+                <View style={styles.calendarGrid}>
+                  {calendarData.cells.map((cell, idx) => {
+                    if (!cell) return <View key={`blank-${idx}`} style={styles.dayCellBlank} />;
+                    const intensity = cell.allCount;
+                    const bg = intensity >= 3 ? '#F0B7A8' : intensity === 2 ? '#F4D7AB' : intensity === 1 ? '#D5E5C8' : '#F9F2E8';
+                    const bd = cell.isToday ? palette.accent : '#EADBCD';
+                    return (
+                      <View key={cell.key} style={[styles.dayCell, { backgroundColor: bg, borderColor: bd }]}>
+                        <Text weight="700" style={styles.dayNum}>{cell.day}</Text>
+                        {cell.allCount > 0 ? <Text style={styles.dayLoad}>{cell.allCount} cls</Text> : <Text style={styles.dayLoad}> </Text>}
+                        {cell.selectedCount > 0 ? <View style={styles.selectedDot} /> : <View style={styles.selectedDotGhost} />}
+                      </View>
+                    );
+                  })}
+                </View>
+
+                <View style={styles.legendRow}>
+                  <View style={styles.legendItem}><View style={[styles.legendSwatch, { backgroundColor: '#D5E5C8' }]} /><Text style={styles.legendText}>light day</Text></View>
+                  <View style={styles.legendItem}><View style={[styles.legendSwatch, { backgroundColor: '#F4D7AB' }]} /><Text style={styles.legendText}>busy day</Text></View>
+                  <View style={styles.legendItem}><View style={[styles.legendSwatch, { backgroundColor: '#F0B7A8' }]} /><Text style={styles.legendText}>long day</Text></View>
+                </View>
+
+                <Text style={styles.insightSubtext}>
+                  {calendarData.heaviest
+                    ? `Heaviest upcoming load: ${calendarData.heaviest.key} (${calendarData.heaviest.count} sessions).`
+                    : 'No upcoming sessions this month.'}
+                </Text>
+              </>
+            )}
+          </Card>
 
           <View style={styles.sectionHeader}>
             <Text weight="700" style={styles.sectionTitle}>Course Moodboard</Text>
@@ -381,6 +601,20 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 14,
   },
+  focusActionBtn: {
+    alignSelf: 'flex-start',
+    marginTop: spacing.xs,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.45)',
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  focusActionText: {
+    color: 'white',
+    fontSize: 13,
+  },
   tileWrap: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -401,6 +635,11 @@ const styles = StyleSheet.create({
     borderColor: palette.border,
     gap: spacing.sm,
   },
+  trendCard: {
+    backgroundColor: '#FFF7EE',
+    borderColor: palette.border,
+    gap: spacing.sm,
+  },
   insightText: {
     color: palette.body,
     lineHeight: 22,
@@ -415,6 +654,11 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginTop: spacing.sm,
+  },
+  sectionHeaderNoMargin: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   sectionTitle: {
     fontSize: 20,
@@ -472,6 +716,129 @@ const styles = StyleSheet.create({
   pinMeta: {
     color: '#66574D',
     fontSize: 12,
+  },
+  trendRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+    minHeight: 168,
+  },
+  trendCol: {
+    flex: 1,
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  trendTrack: {
+    width: '90%',
+    height: 120,
+    borderRadius: 14,
+    backgroundColor: '#F3E5D5',
+    justifyContent: 'flex-end',
+    overflow: 'hidden',
+  },
+  trendFill: {
+    width: '100%',
+    backgroundColor: '#8B6FA8',
+    borderRadius: 14,
+  },
+  trendPct: {
+    color: palette.heading,
+    fontSize: 13,
+  },
+  trendLbl: {
+    color: palette.body,
+    fontSize: 12,
+  },
+  calendarCard: {
+    backgroundColor: '#FFF8EE',
+    borderColor: palette.border,
+    gap: spacing.sm,
+  },
+  calendarLead: {
+    color: palette.body,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  weekHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: spacing.xs,
+  },
+  weekHeaderText: {
+    width: '13.4%',
+    textAlign: 'center',
+    color: '#8A786D',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  calendarGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    gap: spacing.xs,
+  },
+  dayCellBlank: {
+    width: '13.4%',
+    height: 56,
+  },
+  dayCell: {
+    width: '13.4%',
+    minHeight: 56,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 4,
+    paddingVertical: 4,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  dayNum: {
+    color: '#51423A',
+    fontSize: 12,
+  },
+  dayLoad: {
+    color: '#6A574C',
+    fontSize: 10,
+  },
+  selectedDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 99,
+    backgroundColor: palette.accent,
+  },
+  selectedDotGhost: {
+    width: 6,
+    height: 6,
+    borderRadius: 99,
+    backgroundColor: 'transparent',
+  },
+  legendRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    marginTop: spacing.xs,
+  },
+  legendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  legendSwatch: {
+    width: 12,
+    height: 12,
+    borderRadius: 3,
+    borderWidth: 1,
+    borderColor: '#D4C4B5',
+  },
+  legendText: {
+    color: '#6F5F54',
+    fontSize: 12,
+  },
+  centerCompact: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: spacing.md,
+    gap: spacing.sm,
   },
   emptyCard: {
     gap: spacing.sm,
