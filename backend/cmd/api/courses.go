@@ -8,6 +8,24 @@ import (
 	"rescmysem.student.net/internal/validator"
 )
 
+// listCoursesHandler returns all available courses from the catalog.
+// GET /v1/courses
+func (app *application) listCoursesHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	courses, err := app.models.Courses.List(ctx)
+	if err != nil {
+		app.serverErrorResponse(w, r, err)
+		return
+	}
+	if courses == nil {
+		courses = []data.Course{}
+	}
+	err = app.writeJSON(w, http.StatusOK, envelope{"courses": courses}, nil)
+	if err != nil {
+		app.serverErrorResponse(w, r, err)
+	}
+}
+
 // enrollUserInCourseHandler enrolls a user in a course.
 // POST /v1/courses/enroll
 func (app *application) enrollUserInCourseHandler(w http.ResponseWriter, r *http.Request) {

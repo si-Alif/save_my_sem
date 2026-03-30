@@ -27,6 +27,7 @@ func (app *application) routes() http.Handler {
 	router.HandlerFunc(http.MethodGet, "/v1/semesters/active", app.getActiveSemesterHandler)
 
 	// course enrollment routes
+	router.HandlerFunc(http.MethodGet, "/v1/courses", app.listCoursesHandler)
 	router.HandlerFunc(http.MethodPost, "/v1/courses/enroll", app.enrollUserInCourseHandler)
 	router.HandlerFunc(http.MethodGet, "/v1/users/:id/courses", app.listUserCoursesHandler)
 	router.HandlerFunc(http.MethodPut, "/v1/enrollments/:id", app.updateEnrollmentStatusHandler)

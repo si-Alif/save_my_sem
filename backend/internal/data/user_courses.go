@@ -10,6 +10,10 @@ type UserCourse struct {
 	ID             int64     `json:"id"`
 	UserID         int64     `json:"user_id"`
 	CourseID       int64     `json:"course_id"`
+	CourseCode     string    `json:"course_code,omitempty"`
+	CourseName     string    `json:"course_name,omitempty"`
+	CreditHours    float64   `json:"credit_hours,omitempty"`
+	CourseType     string    `json:"course_type,omitempty"`
 	Semester       string    `json:"semester"`
 	Section        string    `json:"section"`
 	Status         string    `json:"status"`
@@ -53,11 +57,13 @@ func (m UserCourseModel) Insert(ctx context.Context, uc *UserCourse) error {
 
 func (m UserCourseModel) ListByUser(ctx context.Context, userID int64, semester string) ([]UserCourse, error) {
 	const q = `
-        SELECT id, user_id, course_id, semester, section, status, grade,
-               enrollment_date, created_at, updated_at, version
-        FROM user_courses
-        WHERE user_id = $1 AND semester = $2 AND status = 'active'
-        ORDER BY course_id`
+	        SELECT uc.id, uc.user_id, uc.course_id, uc.semester, uc.section, uc.status, uc.grade,
+	               uc.enrollment_date, uc.created_at, uc.updated_at, uc.version,
+	               c.code, c.name, c.credit_hours, c.course_type
+	        FROM user_courses uc
+	        JOIN courses c ON c.id = uc.course_id
+	        WHERE uc.user_id = $1 AND uc.semester = $2 AND uc.status = 'active'
+	        ORDER BY c.code`
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	rows, err := m.DB.QueryContext(ctx, q, userID, semester)
@@ -71,6 +77,7 @@ func (m UserCourseModel) ListByUser(ctx context.Context, userID int64, semester 
 		if err := rows.Scan(
 			&uc.ID, &uc.UserID, &uc.CourseID, &uc.Semester, &uc.Section, &uc.Status, &uc.Grade,
 			&uc.EnrollmentDate, &uc.CreatedAt, &uc.UpdatedAt, &uc.Version,
+			&uc.CourseCode, &uc.CourseName, &uc.CreditHours, &uc.CourseType,
 		); err != nil {
 			return nil, err
 		}

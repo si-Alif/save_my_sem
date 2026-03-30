@@ -8,11 +8,18 @@ export interface TokenResponse {
 
 export interface Course {
   id: number;
-  user_id: number;
-  course_id: number;
-  semester: string;
-  section: string;
-  status: string;
+  user_id?: number;
+  course_id?: number;
+  semester?: string;
+  section?: string;
+  status?: string;
+  course_code?: string;
+  course_name?: string;
+  credit_hours?: number;
+  course_type?: string;
+  contact_hours_per_week?: number;
+  code?: string; // for catalog responses
+  name?: string; // for catalog responses
 }
 
 export interface Session {

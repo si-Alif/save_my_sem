@@ -15,6 +15,7 @@ var (
 type Models struct {
 	Users           UserModel
 	Tokens          TokenModel
+	Courses         CourseModel
 	SemesterConfigs SemesterConfigModel
 	UserCourses     UserCourseModel
 	ScheduleRules   ScheduleRuleModel
@@ -26,6 +27,7 @@ func NewModels(db *sql.DB) Models {
 	return Models{
 		Users:           UserModel{DB: db},
 		Tokens:          TokenModel{DB: db},
+		Courses:         CourseModel{DB: db},
 		SemesterConfigs: SemesterConfigModel{DB: db},
 		UserCourses:     UserCourseModel{DB: db},
 		ScheduleRules:   ScheduleRuleModel{DB: db},
