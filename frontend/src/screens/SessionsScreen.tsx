@@ -36,8 +36,12 @@ const statusColors: Record<string, string> = {
 
 function formatDate(dateStr: string) {
   if (!dateStr) return '—';
-  const [y, m, d] = dateStr.split('-').map((n) => Number(n));
-  const date = new Date(Date.UTC(y, (m || 1) - 1, d || 1));
+  const m = dateStr.match(/(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return '—';
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  const date = new Date(Date.UTC(y, (mo || 1) - 1, d || 1));
   return date.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
 }
 
@@ -51,6 +55,76 @@ function formatTime(timeStr: string) {
 function titleCase(input: string) {
   if (!input) return input;
   return input.charAt(0).toUpperCase() + input.slice(1);
+}
+
+function formatYMD(date: Date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function getWeekEnd(date: Date) {
+  const d = new Date(date);
+  const day = d.getDay(); // 0=Sun
+  const daysUntilSunday = (7 - day) % 7;
+  d.setDate(d.getDate() + daysUntilSunday);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function parseSessionDateTime(sessionDate: string, startTime: string) {
+  const d = sessionDate.match(/(\d{4})-(\d{2})-(\d{2})/);
+  const t = startTime.match(/(\d{2}):(\d{2})/);
+  if (!d || !t) return null;
+  const year = Number(d[1]);
+  const month = Number(d[2]);
+  const day = Number(d[3]);
+  const hour = Number(t[1]);
+  const minute = Number(t[2]);
+  const dt = new Date(year, month - 1, day, hour, minute, 0, 0);
+  return Number.isNaN(dt.valueOf()) ? null : dt;
+}
+
+function relativeCountdown(target: Date, now: Date) {
+  const diffMs = target.getTime() - now.getTime();
+  if (diffMs <= 0) return 'now';
+  const totalMinutes = Math.ceil(diffMs / 60000);
+  const days = Math.floor(totalMinutes / (60 * 24));
+  const hours = Math.floor((totalMinutes % (60 * 24)) / 60);
+  const minutes = totalMinutes % 60;
+  if (days > 0) return `in ${days}d ${hours}h`;
+  if (hours > 0) return `in ${hours}h ${minutes}m`;
+  return `in ${minutes}m`;
+}
+
+function weeklyTone(remainingCount: number) {
+  if (remainingCount >= 8) {
+    return {
+      label: 'High load week',
+      tip: 'Protect energy and attend early sessions first.',
+      tone: palette.risk,
+    };
+  }
+  if (remainingCount >= 4) {
+    return {
+      label: 'Balanced week',
+      tip: 'You are on track. Keep consistency to avoid last-minute pressure.',
+      tone: palette.warning,
+    };
+  }
+  if (remainingCount > 0) {
+    return {
+      label: 'Light week',
+      tip: 'Good chance to strengthen weaker courses with full attendance.',
+      tone: palette.success,
+    };
+  }
+  return {
+    label: 'No more classes this week',
+    tip: 'Use this buffer to revise and prepare for next week.',
+    tone: palette.cool,
+  };
 }
 
 export default function SessionsScreen() {
@@ -149,6 +223,40 @@ export default function SessionsScreen() {
     ? 'No upcoming sessions for this course right now.'
     : 'No sessions found for the selected range.';
 
+  const now = new Date();
+  const todayYMD = formatYMD(now);
+  const weekEndYMD = formatYMD(getWeekEnd(now));
+
+  const workloadQuery = useQuery({
+    queryKey: ['sessions-workload', userId, selectedCourseID ?? 'all', todayYMD, weekEndYMD],
+    queryFn: () =>
+      listUserSessions(userId!, {
+        from: todayYMD,
+        to: weekEndYMD,
+        course_id: selectedCourseID || undefined,
+        page_size: 100,
+      }),
+    enabled: !!userId,
+  });
+
+  const remainingThisWeek = workloadQuery.data?.sessions?.length ?? 0;
+
+  const nextClass = useMemo(() => {
+    const sessions = workloadQuery.data?.sessions || [];
+    const nowTs = now.getTime();
+    const parsed = sessions
+      .map((s: any) => ({
+        session: s,
+        at: parseSessionDateTime(s.session_date, s.start_time),
+      }))
+      .filter((x) => x.at && x.at.getTime() >= nowTs) as Array<{ session: any; at: Date }>;
+    parsed.sort((a, b) => a.at.getTime() - b.at.getTime());
+    return parsed[0] || null;
+  }, [workloadQuery.data, now]);
+
+  const weeklyMood = weeklyTone(remainingThisWeek);
+  const meterPercent = Math.max(8, Math.min(100, remainingThisWeek * 12));
+
   return (
     <Screen scroll={false} style={styles.page}>
       <View style={styles.shell}>
@@ -160,6 +268,22 @@ export default function SessionsScreen() {
               ? `${activeCourse.code || 'Selected course'} sessions in focus. Mark and clear them as you go.`
               : 'Track daily classes, then mark attendance to keep this board clean and stress-free.'}
           </Text>
+
+          <View style={styles.meterCard}>
+            <View style={styles.meterTopRow}>
+              <Text weight="700" style={[styles.meterTitle, { color: weeklyMood.tone }]}>{weeklyMood.label}</Text>
+              <Text style={styles.meterCount}>{remainingThisWeek} left this week</Text>
+            </View>
+            <View style={styles.meterTrack}>
+              <View style={[styles.meterFill, { width: `${meterPercent}%`, backgroundColor: weeklyMood.tone }]} />
+            </View>
+            <Text style={styles.meterTip}>{weeklyMood.tip}</Text>
+            <Text style={styles.meterNext}>
+              {nextClass
+                ? `Next class: ${formatDate(nextClass.session.session_date)} at ${formatTime(nextClass.session.start_time)} (${relativeCountdown(nextClass.at, now)})`
+                : 'No remaining class this week.'}
+            </Text>
+          </View>
         </LinearGradient>
 
         <View style={styles.topControls}>
@@ -339,6 +463,49 @@ const styles = StyleSheet.create({
     color: palette.body,
     fontSize: 14,
     lineHeight: 21,
+  },
+  meterCard: {
+    marginTop: spacing.xs,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(109,76,100,0.22)',
+    backgroundColor: 'rgba(255,250,245,0.72)',
+    padding: spacing.md,
+    gap: spacing.xs,
+  },
+  meterTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  meterTitle: {
+    fontSize: 14,
+  },
+  meterCount: {
+    color: '#5E544D',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  meterTrack: {
+    height: 8,
+    borderRadius: 999,
+    backgroundColor: 'rgba(70,59,52,0.12)',
+    overflow: 'hidden',
+  },
+  meterFill: {
+    height: 8,
+    borderRadius: 999,
+  },
+  meterTip: {
+    color: '#5E544D',
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  meterNext: {
+    color: '#51463F',
+    fontSize: 12,
+    lineHeight: 18,
   },
   topControls: {
     gap: spacing.sm,
