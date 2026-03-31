@@ -4,6 +4,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { useAuth } from '../state/AuthProvider';
 import LoginScreen from '../screens/LoginScreen';
+import RegisterScreen from '../screens/RegisterScreen';
 import TodayScreen from '../screens/TodayScreen';
 import CoursesScreen from '../screens/CoursesScreen';
 import SessionsScreen from '../screens/SessionsScreen';
@@ -39,6 +40,7 @@ export function RootNavigator() {
       ) : (
         <Stack.Navigator screenOptions={{ headerShown: false }}>
           <Stack.Screen name="Login" component={LoginScreen} />
+          <Stack.Screen name="Register" component={RegisterScreen} />
         </Stack.Navigator>
       )}
     </NavigationContainer>

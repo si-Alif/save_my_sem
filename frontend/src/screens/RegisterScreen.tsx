@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, TextInput, StyleSheet, Alert, Pressable } from 'react-native';
+import { Alert, Pressable, StyleSheet, TextInput, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Screen } from '../components/Screen';
@@ -15,47 +15,63 @@ const palette = {
   card: '#FFF9F2',
   border: '#E9DCCF',
   accent: '#6D4C64',
-  success: '#4E8D75',
-  warning: '#C77A4D',
   risk: '#B04A4A',
 };
 
-export default function LoginScreen() {
-  const { login, authBusy } = useAuth();
+export default function RegisterScreen() {
+  const { register, authBusy } = useAuth();
   const navigation = useNavigation<any>();
+
+  const [fullname, setFullname] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
 
   const onSubmit = async () => {
-    if (!email || !password) {
-      Alert.alert('Login failed', 'Email and password are required');
+    if (!fullname.trim() || !email.trim() || !password) {
+      Alert.alert('Registration failed', 'Full name, email and password are required.');
       return;
     }
     if (password.length < 8) {
-      Alert.alert('Login failed', 'Password must be at least 8 characters');
+      Alert.alert('Registration failed', 'Password must be at least 8 characters.');
       return;
     }
+    if (password !== confirmPassword) {
+      Alert.alert('Registration failed', 'Passwords do not match.');
+      return;
+    }
+
     try {
-      await login({ email: email.trim().toLowerCase(), password });
+      await register({
+        fullname: fullname.trim(),
+        email: email.trim().toLowerCase(),
+        password,
+      });
     } catch (err: any) {
-      Alert.alert('Login failed', err?.message || 'Please check your credentials');
+      Alert.alert('Registration failed', err?.message || 'Could not create account. Try again.');
     }
   };
 
   return (
     <Screen style={styles.page}>
       <LinearGradient colors={['#EED9CB', '#F8EFE7']} style={styles.heroCard}>
-        <Text style={styles.heroEyebrow}>WELCOME BACK</Text>
-        <Text style={styles.title} weight="700">Attendance Studio</Text>
+        <Text style={styles.heroEyebrow}>GET STARTED</Text>
+        <Text style={styles.title} weight="700">Create Account</Text>
         <Text style={styles.heroBody}>
-          Pick up your routine where you left off and lock in today's class momentum.
+          Build your attendance routine from day one and let the app guide your momentum.
         </Text>
       </LinearGradient>
 
       <View style={styles.formCard}>
-        <Text style={styles.formTitle} weight="700">Sign in</Text>
-        <Text style={styles.formHint}>Use your email and password. Session stays active until token expiry.</Text>
+        <Text style={styles.formTitle} weight="700">Register</Text>
 
+        <TextInput
+          placeholder="Full name"
+          placeholderTextColor="#9A8D84"
+          value={fullname}
+          onChangeText={setFullname}
+          style={styles.input}
+        />
         <TextInput
           placeholder="Email"
           placeholderTextColor="#9A8D84"
@@ -73,13 +89,21 @@ export default function LoginScreen() {
           secureTextEntry
           style={styles.input}
         />
+        <TextInput
+          placeholder="Confirm password"
+          placeholderTextColor="#9A8D84"
+          value={confirmPassword}
+          onChangeText={setConfirmPassword}
+          secureTextEntry
+          style={styles.input}
+        />
 
-        <Button label={authBusy ? 'Signing in...' : 'Sign in'} onPress={onSubmit} disabled={authBusy} />
+        <Button label={authBusy ? 'Creating account...' : 'Create account'} onPress={onSubmit} disabled={authBusy} />
 
-        <View style={styles.registerRow}>
-          <Text style={styles.registerText}>New here?</Text>
-          <Pressable onPress={() => navigation.navigate('Register')}>
-            <Text style={styles.registerLink} weight="700">Create account</Text>
+        <View style={styles.loginRow}>
+          <Text style={styles.loginText}>Already have an account?</Text>
+          <Pressable onPress={() => navigation.navigate('Login')}>
+            <Text style={styles.loginLink} weight="700">Sign in</Text>
           </Pressable>
         </View>
       </View>
@@ -125,11 +149,6 @@ const styles = StyleSheet.create({
     color: palette.heading,
     fontSize: 20,
   },
-  formHint: {
-    color: palette.body,
-    fontSize: 13,
-    lineHeight: 19,
-  },
   input: {
     backgroundColor: '#FFFDF9',
     borderRadius: 12,
@@ -138,16 +157,16 @@ const styles = StyleSheet.create({
     borderColor: palette.border,
     color: '#3D332E',
   },
-  registerRow: {
+  loginRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.xs,
   },
-  registerText: {
+  loginText: {
     color: palette.body,
     fontSize: 13,
   },
-  registerLink: {
+  loginLink: {
     color: palette.accent,
     fontSize: 13,
   },

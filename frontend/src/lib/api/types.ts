@@ -1,9 +1,17 @@
+export interface AuthUser {
+  id: number;
+  email: string;
+  fullname?: string;
+  activated?: boolean;
+}
+
 export interface TokenResponse {
   authentication_token: {
     token: string;
     expiry?: string;
-    user_id?: number;
+    user_id: number;
   };
+  user?: AuthUser;
 }
 
 export interface Course {

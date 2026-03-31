@@ -28,13 +28,14 @@ const palette = {
 };
 
 export default function SettingsScreen() {
-  const { logout, semesterKey, setSemesterKey } = useAuth();
+  const { logout, userId, userInfo, semesterKey, setSemesterKey } = useAuth();
   const parsed = useMemo(() => parseSemesterKey(semesterKey), [semesterKey]);
   const [selectedLevelTerm, setSelectedLevelTerm] = useState(
     parsed ? `${parsed.level}-${parsed.term}` : DEFAULT_SEMESTER_KEY.split(':')[0]
   );
   const [batch, setBatch] = useState(parsed ? String(parsed.batch) : DEFAULT_SEMESTER_KEY.split(':')[1]);
   const [saving, setSaving] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
 
@@ -73,6 +74,15 @@ export default function SettingsScreen() {
     }
   };
 
+  const onLogout = async () => {
+    setLoggingOut(true);
+    try {
+      await logout();
+    } finally {
+      setLoggingOut(false);
+    }
+  };
+
   return (
     <Screen style={styles.page}>
       <LinearGradient colors={['#EED9CB', '#F8EFE7']} style={styles.heroCard}>
@@ -90,6 +100,28 @@ export default function SettingsScreen() {
           </View>
         </View>
       </LinearGradient>
+
+      <Card style={styles.sectionCard}>
+        <Text weight="700" style={styles.sectionTitle}>User Info</Text>
+        <View style={styles.previewBlock}>
+          <View style={styles.previewRow}>
+            <Text style={styles.previewLabel}>Full name</Text>
+            <Text weight="700" style={styles.previewValue}>{userInfo?.fullname || 'Not set'}</Text>
+          </View>
+          <View style={styles.previewRow}>
+            <Text style={styles.previewLabel}>Email</Text>
+            <Text weight="700" style={styles.previewValue}>{userInfo?.email || 'Unknown'}</Text>
+          </View>
+          <View style={styles.previewRow}>
+            <Text style={styles.previewLabel}>User ID</Text>
+            <Text weight="700" style={styles.previewValue}>{userId ? String(userId) : 'Unknown'}</Text>
+          </View>
+          <View style={styles.previewRow}>
+            <Text style={styles.previewLabel}>Account</Text>
+            <Text weight="700" style={styles.previewValue}>{userInfo?.activated === false ? 'Pending activation' : 'Active'}</Text>
+          </View>
+        </View>
+      </Card>
 
       <Card style={styles.sectionCard}>
         <Text weight="700" style={styles.sectionTitle}>Academic Semester Scope</Text>
@@ -156,7 +188,7 @@ export default function SettingsScreen() {
       <Card style={styles.sectionCard}>
         <Text weight="700" style={styles.sectionTitle}>Account</Text>
         <Text style={styles.sectionBody}>Log out when switching users on this device.</Text>
-        <Button label="Log out" onPress={logout} variant="secondary" />
+        <Button label={loggingOut ? 'Logging out...' : 'Log out'} onPress={onLogout} variant="secondary" disabled={loggingOut} />
       </Card>
     </Screen>
   );
