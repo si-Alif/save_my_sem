@@ -38,6 +38,11 @@ export interface AttendanceLog {
   id: number;
   user_id: number;
   class_session_id: number;
+  course_id?: number;
+  session_date?: string;
+  start_time?: string;
+  end_time?: string;
+  location?: string;
   status: string;
   marked_at: string;
   marked_by_user_id?: number;

@@ -8,15 +8,20 @@ import (
 )
 
 type AttendanceLog struct {
-	ID             int64     `json:"id"`
-	UserID         int64     `json:"user_id"`
-	ClassSessionID int64     `json:"class_session_id"`
-	Status         string    `json:"status"`
-	MarkedAt       time.Time `json:"marked_at"`
-	MarkedByUserID *int64    `json:"marked_by_user_id,omitempty"`
-	Note           *string   `json:"note,omitempty"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	ID             int64      `json:"id"`
+	UserID         int64      `json:"user_id"`
+	ClassSessionID int64      `json:"class_session_id"`
+	CourseID       *int64     `json:"course_id,omitempty"`
+	SessionDate    *time.Time `json:"session_date,omitempty"`
+	StartTime      *time.Time `json:"start_time,omitempty"`
+	EndTime        *time.Time `json:"end_time,omitempty"`
+	Location       *string    `json:"location,omitempty"`
+	Status         string     `json:"status"`
+	MarkedAt       time.Time  `json:"marked_at"`
+	MarkedByUserID *int64     `json:"marked_by_user_id,omitempty"`
+	Note           *string    `json:"note,omitempty"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
 }
 
 type AttendanceLogModel struct {
@@ -109,8 +114,10 @@ func (m AttendanceLogModel) ListByUserFiltered(ctx context.Context, userID int64
 	}
 
 	q := `
-        SELECT al.id, al.user_id, al.class_session_id, al.status, al.marked_at,
-               al.marked_by_user_id, al.note, al.created_at, al.updated_at
+	 SELECT al.id, al.user_id, al.class_session_id,
+		 cs.course_id, cs.session_date, cs.start_time::text, cs.end_time::text, cs.location,
+		 al.status, al.marked_at,
+		 al.marked_by_user_id, al.note, al.created_at, al.updated_at
         FROM attendance_logs al
         JOIN class_sessions cs ON cs.id = al.class_session_id
         ` + where + `
@@ -127,12 +134,23 @@ func (m AttendanceLogModel) ListByUserFiltered(ctx context.Context, userID int64
 	var out []AttendanceLog
 	for rows.Next() {
 		var al AttendanceLog
+		var startStr, endStr string
 		if err := rows.Scan(
-			&al.ID, &al.UserID, &al.ClassSessionID, &al.Status, &al.MarkedAt,
+			&al.ID, &al.UserID, &al.ClassSessionID,
+			&al.CourseID, &al.SessionDate, &startStr, &endStr, &al.Location,
+			&al.Status, &al.MarkedAt,
 			&al.MarkedByUserID, &al.Note, &al.CreatedAt, &al.UpdatedAt,
 		); err != nil {
 			return nil, Metadata{}, err
 		}
+
+		if st, err := parseSQLTime(startStr); err == nil {
+			al.StartTime = &st
+		}
+		if et, err := parseSQLTime(endStr); err == nil {
+			al.EndTime = &et
+		}
+
 		out = append(out, al)
 	}
 
