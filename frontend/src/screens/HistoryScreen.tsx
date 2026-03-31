@@ -22,6 +22,7 @@ import { useAuth } from '../state/AuthProvider';
 const DEFAULT_SEMESTER = 'odd-2026';
 
 type HistoryMode = 'cards' | 'timeline';
+type GroupBy = 'day' | 'course';
 type StatusFilter = 'all' | 'present' | 'late' | 'excused' | 'absent';
 
 const STATUS_OPTIONS: Array<{ key: StatusFilter; label: string }> = [
@@ -103,9 +104,9 @@ function moodFor(status: string) {
     case 'present':
       return { color: palette.success, label: 'You showed up. Keep this rhythm.' };
     case 'late':
-      return { color: palette.warning, label: 'Almost there. Sharpen your class start routine.' };
+      return { color: palette.warning, label: 'Almost there. Tune your class-start routine.' };
     case 'excused':
-      return { color: palette.cool, label: 'Excused day. Plan your next attendance streak.' };
+      return { color: palette.cool, label: 'Excused day. Plan your next consistency streak.' };
     default:
       return { color: palette.risk, label: 'This one slipped. Protect the next class.' };
   }
@@ -115,20 +116,20 @@ function profileFor(consistency: number) {
   if (consistency >= 85) {
     return {
       title: 'Steady Climber',
-      text: 'Your attendance behavior is strong. Keep protecting this consistency across your harder courses.',
+      text: 'Strong rhythm. Keep protecting this behavior in your tougher courses.',
       color: palette.success,
     };
   }
   if (consistency >= 70) {
     return {
       title: 'Building Momentum',
-      text: 'You are in a recoverable zone. A few intentional weeks can lift your overall confidence quickly.',
+      text: 'Recoverable zone. A few intentional weeks can shift your trajectory.',
       color: palette.warning,
     };
   }
   return {
     title: 'Needs Attention',
-    text: 'History is showing risk. Start with one simple win: make the next class non-negotiable.',
+    text: 'History shows risk. Start with one simple win: attend the very next class.',
     color: palette.risk,
   };
 }
@@ -146,6 +147,8 @@ export default function HistoryScreen() {
   const [selectedCourseID, setSelectedCourseID] = useState<number | null>(null);
   const [selectedStatus, setSelectedStatus] = useState<StatusFilter>('all');
   const [mode, setMode] = useState<HistoryMode>('cards');
+  const [groupBy, setGroupBy] = useState<GroupBy>('day');
+  const [showFilters, setShowFilters] = useState(false);
 
   const coursesQuery = useQuery({
     queryKey: ['courses', userId, DEFAULT_SEMESTER, 'history'],
@@ -214,6 +217,25 @@ export default function HistoryScreen() {
   const mindset = profileFor(consistencyPct);
 
   const sections = useMemo(() => {
+    if (groupBy === 'course') {
+      const map = new Map<string, { title: string; data: AttendanceLog[] }>();
+      rows.forEach((row) => {
+        const key = row.course_id ? `course-${row.course_id}` : 'course-unknown';
+        const meta = row.course_id ? courseMeta.get(row.course_id) : null;
+        const title = meta
+          ? `${meta.code || `Course #${row.course_id}`} • ${meta.name || 'Session records'}`
+          : 'Unknown course';
+
+        const existing = map.get(key);
+        if (existing) existing.data.push(row);
+        else map.set(key, { title, data: [row] });
+      });
+
+      return Array.from(map.entries())
+        .map(([key, val]) => ({ key, title: val.title, data: [...val.data].sort(sortByMarkedAtDesc) }))
+        .sort((a, b) => a.title.localeCompare(b.title));
+    }
+
     const map = new Map<string, AttendanceLog[]>();
     rows.forEach((row) => {
       const key = extractDateKey(row);
@@ -225,7 +247,7 @@ export default function HistoryScreen() {
     return Array.from(map.entries())
       .sort((a, b) => b[0].localeCompare(a[0]))
       .map(([key, data]) => ({ key, title: formatSectionHeading(key), data }));
-  }, [rows]);
+  }, [rows, groupBy, courseMeta]);
 
   const emptyMessage =
     selectedStatus === 'all'
@@ -272,62 +294,81 @@ export default function HistoryScreen() {
   return (
     <Screen scroll={false} style={styles.page}>
       <View style={styles.shell}>
-        <LinearGradient colors={['#EED9CB', '#F8EFE7']} style={styles.heroCard}>
-          <Text style={styles.heroEyebrow}>ATTENDANCE MEMORY</Text>
-          <Text weight="700" style={styles.heroTitle}>History Journal</Text>
-          <Text style={styles.heroBody}>
-            History is your feedback mirror. Use it to reinforce the habits that protect your long-term grade.
-          </Text>
-          <View style={styles.mindsetCard}>
-            <Text weight="700" style={[styles.mindsetTitle, { color: mindset.color }]}>{mindset.title}</Text>
-            <Text style={styles.mindsetText}>{mindset.text}</Text>
+        <View style={styles.headerBar}>
+          <View style={{ flex: 1, gap: 2 }}>
+            <Text weight="700" style={styles.title}>History Journal</Text>
+            <Text style={styles.subtitle}>Patterns, decisions, and progress.</Text>
           </View>
-        </LinearGradient>
-
-        <View style={styles.metricsRow}>
-          <Card style={styles.metricCard}><Text muted>Consistency</Text><Text weight="700" style={[styles.metricValue, { color: palette.accent }]}>{consistencyPct}%</Text></Card>
-          <Card style={styles.metricCard}><Text muted>Active Streak</Text><Text weight="700" style={[styles.metricValue, { color: palette.success }]}>{activeStreak}</Text></Card>
-          <Card style={styles.metricCard}><Text muted>Absent</Text><Text weight="700" style={[styles.metricValue, { color: palette.risk }]}>{totals.absent}</Text></Card>
+          <View style={styles.miniStatsCol}>
+            <View style={styles.miniStatPill}><Text style={styles.miniStatValue}>{consistencyPct}%</Text><Text style={styles.miniStatLabel}>consistency</Text></View>
+            <View style={styles.miniStatPill}><Text style={styles.miniStatValue}>{activeStreak}</Text><Text style={styles.miniStatLabel}>streak</Text></View>
+          </View>
         </View>
 
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipsRow}>
-          <Pressable
-            style={[styles.courseChip, selectedCourseID === null && styles.courseChipActive]}
-            onPress={() => setSelectedCourseID(null)}
-          >
-            <Text weight="700" style={[styles.courseChipText, selectedCourseID === null && styles.courseChipTextActive]}>All courses</Text>
-          </Pressable>
-          {courseChips.map((chip) => (
-            <Pressable
-              key={String(chip.id)}
-              style={[styles.courseChip, selectedCourseID === chip.id && styles.courseChipActive]}
-              onPress={() => setSelectedCourseID(chip.id)}
-            >
-              <Text weight="700" style={[styles.courseChipText, selectedCourseID === chip.id && styles.courseChipTextActive]}>{chip.code}</Text>
-            </Pressable>
-          ))}
-        </ScrollView>
-
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipsRow}>
-          {STATUS_OPTIONS.map((option) => (
-            <Pressable
-              key={option.key}
-              style={[styles.statusChip, selectedStatus === option.key && styles.statusChipActive]}
-              onPress={() => setSelectedStatus(option.key)}
-            >
-              <Text weight="700" style={[styles.statusChipText, selectedStatus === option.key && styles.statusChipTextActive]}>{option.label}</Text>
-            </Pressable>
-          ))}
-        </ScrollView>
+        <View style={styles.mindsetStrip}>
+          <View style={[styles.mindsetDot, { backgroundColor: mindset.color }]} />
+          <Text style={styles.mindsetStripText}><Text weight="700">{mindset.title}: </Text>{mindset.text}</Text>
+        </View>
 
         <View style={styles.modeRow}>
           <Pressable style={[styles.modeBtn, mode === 'cards' && styles.modeBtnActive]} onPress={() => setMode('cards')}>
-            <Text style={[styles.modeText, mode === 'cards' && styles.modeTextActive]}>Cards View</Text>
+            <Text style={[styles.modeText, mode === 'cards' && styles.modeTextActive]}>Cards</Text>
           </Pressable>
           <Pressable style={[styles.modeBtn, mode === 'timeline' && styles.modeBtnActive]} onPress={() => setMode('timeline')}>
-            <Text style={[styles.modeText, mode === 'timeline' && styles.modeTextActive]}>Grouped Timeline</Text>
+            <Text style={[styles.modeText, mode === 'timeline' && styles.modeTextActive]}>Timeline</Text>
           </Pressable>
+          {mode === 'timeline' && (
+            <View style={styles.groupRowInline}>
+              <Pressable style={[styles.groupBtn, groupBy === 'day' && styles.groupBtnActive]} onPress={() => setGroupBy('day')}>
+                <Text style={[styles.groupBtnText, groupBy === 'day' && styles.groupBtnTextActive]}>Day</Text>
+              </Pressable>
+              <Pressable style={[styles.groupBtn, groupBy === 'course' && styles.groupBtnActive]} onPress={() => setGroupBy('course')}>
+                <Text style={[styles.groupBtnText, groupBy === 'course' && styles.groupBtnTextActive]}>Course</Text>
+              </Pressable>
+            </View>
+          )}
         </View>
+
+        <View style={styles.filterTopRow}>
+          <Pressable style={styles.filterToggle} onPress={() => setShowFilters((v) => !v)}>
+            <Text style={styles.filterToggleText}>{showFilters ? 'Hide Filters' : 'Show Filters'}</Text>
+          </Pressable>
+          <Text style={styles.filterSummary}>P {totals.present} • L {totals.late} • A {totals.absent}</Text>
+        </View>
+
+        {showFilters && (
+          <>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipsRow}>
+              <Pressable
+                style={[styles.courseChip, selectedCourseID === null && styles.courseChipActive]}
+                onPress={() => setSelectedCourseID(null)}
+              >
+                <Text weight="700" style={[styles.courseChipText, selectedCourseID === null && styles.courseChipTextActive]}>All courses</Text>
+              </Pressable>
+              {courseChips.map((chip) => (
+                <Pressable
+                  key={String(chip.id)}
+                  style={[styles.courseChip, selectedCourseID === chip.id && styles.courseChipActive]}
+                  onPress={() => setSelectedCourseID(chip.id)}
+                >
+                  <Text weight="700" style={[styles.courseChipText, selectedCourseID === chip.id && styles.courseChipTextActive]}>{chip.code}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipsRow}>
+              {STATUS_OPTIONS.map((option) => (
+                <Pressable
+                  key={option.key}
+                  style={[styles.statusChip, selectedStatus === option.key && styles.statusChipActive]}
+                  onPress={() => setSelectedStatus(option.key)}
+                >
+                  <Text weight="700" style={[styles.statusChipText, selectedStatus === option.key && styles.statusChipTextActive]}>{option.label}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+          </>
+        )}
 
         {query.isLoading && (
           <View style={styles.center}>
@@ -347,6 +388,7 @@ export default function HistoryScreen() {
 
         {!query.isLoading && !query.isError && mode === 'cards' && (
           <FlatList
+            style={styles.feed}
             data={rows}
             keyExtractor={(item) => String(item.id)}
             contentContainerStyle={styles.list}
@@ -368,6 +410,7 @@ export default function HistoryScreen() {
 
         {!query.isLoading && !query.isError && mode === 'timeline' && (
           <SectionList
+            style={styles.feed}
             sections={sections}
             keyExtractor={(item) => String(item.id)}
             contentContainerStyle={styles.list}
@@ -403,116 +446,85 @@ const styles = StyleSheet.create({
   },
   shell: {
     flex: 1,
-    padding: spacing.xl,
-    gap: spacing.md,
-  },
-  heroCard: {
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: palette.border,
-    padding: spacing.xl,
+    minHeight: 0,
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.sm,
     gap: spacing.sm,
   },
-  heroEyebrow: {
-    color: palette.accent,
-    letterSpacing: 1.2,
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  heroTitle: {
-    color: palette.heading,
-    fontSize: 32,
-  },
-  heroBody: {
-    color: palette.body,
-    fontSize: 14,
-    lineHeight: 21,
-  },
-  mindsetCard: {
-    marginTop: spacing.xs,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(109,76,100,0.22)',
-    backgroundColor: 'rgba(255,250,245,0.72)',
-    padding: spacing.md,
-    gap: spacing.xs,
-  },
-  mindsetTitle: {
-    fontSize: 14,
-  },
-  mindsetText: {
-    color: '#5E544D',
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  metricsRow: {
+  headerBar: {
     flexDirection: 'row',
     gap: spacing.sm,
-  },
-  metricCard: {
-    flex: 1,
-    backgroundColor: palette.card,
-    borderColor: palette.border,
-    alignItems: 'center',
-    gap: spacing.xs,
-  },
-  metricValue: {
-    fontSize: 22,
-  },
-  chipsRow: {
-    gap: spacing.sm,
-    paddingVertical: spacing.xs,
-  },
-  courseChip: {
     borderRadius: 16,
     borderWidth: 1,
     borderColor: palette.border,
-    backgroundColor: palette.card,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
+    backgroundColor: '#FDF6EE',
+    padding: spacing.md,
   },
-  courseChipActive: {
-    backgroundColor: '#F8E3D2',
-    borderColor: '#D9B79F',
-  },
-  courseChipText: {
+  title: {
     color: palette.heading,
-    fontSize: 13,
+    fontSize: 24,
   },
-  courseChipTextActive: {
-    color: '#5D4034',
+  subtitle: {
+    color: palette.body,
+    fontSize: 12,
   },
-  statusChip: {
-    borderRadius: 16,
+  miniStatsCol: {
+    justifyContent: 'space-between',
+    gap: 6,
+  },
+  miniStatPill: {
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: palette.border,
-    backgroundColor: '#FFF7EF',
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
+    backgroundColor: palette.card,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    alignItems: 'center',
   },
-  statusChipActive: {
-    backgroundColor: '#EED9CB',
-    borderColor: '#C8AFA0',
-  },
-  statusChipText: {
-    color: palette.body,
+  miniStatValue: {
+    color: palette.accent,
+    fontWeight: '700',
     fontSize: 13,
   },
-  statusChipTextActive: {
-    color: '#5D4034',
+  miniStatLabel: {
+    color: palette.body,
+    fontSize: 10,
+  },
+  mindsetStrip: {
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: '#FFF9F2',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    flexDirection: 'row',
+    gap: spacing.xs,
+    alignItems: 'center',
+  },
+  mindsetDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 99,
+  },
+  mindsetStripText: {
+    color: '#5E544D',
+    fontSize: 12,
+    flex: 1,
   },
   modeRow: {
     flexDirection: 'row',
-    gap: spacing.sm,
+    alignItems: 'center',
+    gap: spacing.xs,
+    flexWrap: 'wrap',
   },
   modeBtn: {
-    flex: 1,
-    borderRadius: 14,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: palette.border,
     backgroundColor: palette.card,
-    paddingVertical: spacing.sm,
-    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
   },
   modeBtnActive: {
     backgroundColor: '#EED9CB',
@@ -521,9 +533,104 @@ const styles = StyleSheet.create({
   modeText: {
     color: palette.body,
     fontWeight: '600',
+    fontSize: 12,
   },
   modeTextActive: {
     color: '#5D4034',
+  },
+  groupRowInline: {
+    flexDirection: 'row',
+    gap: 6,
+    marginLeft: 4,
+  },
+  groupBtn: {
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: '#FFF7EF',
+    paddingVertical: 7,
+    paddingHorizontal: 10,
+  },
+  groupBtnActive: {
+    backgroundColor: '#EED9CB',
+    borderColor: '#C8AFA0',
+  },
+  groupBtnText: {
+    color: palette.body,
+    fontWeight: '600',
+    fontSize: 12,
+  },
+  groupBtnTextActive: {
+    color: '#5D4034',
+  },
+  filterTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  filterToggle: {
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: '#FFF8F0',
+    paddingVertical: 7,
+    paddingHorizontal: 10,
+  },
+  filterToggleText: {
+    color: palette.accent,
+    fontWeight: '700',
+    fontSize: 12,
+  },
+  filterSummary: {
+    color: palette.body,
+    fontSize: 12,
+  },
+  chipsRow: {
+    gap: spacing.xs,
+    paddingVertical: 2,
+  },
+  courseChip: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: palette.card,
+    paddingVertical: 7,
+    paddingHorizontal: 10,
+  },
+  courseChipActive: {
+    backgroundColor: '#F8E3D2',
+    borderColor: '#D9B79F',
+  },
+  courseChipText: {
+    color: palette.heading,
+    fontSize: 12,
+  },
+  courseChipTextActive: {
+    color: '#5D4034',
+  },
+  statusChip: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: '#FFF7EF',
+    paddingVertical: 7,
+    paddingHorizontal: 10,
+  },
+  statusChipActive: {
+    backgroundColor: '#EED9CB',
+    borderColor: '#C8AFA0',
+  },
+  statusChipText: {
+    color: palette.body,
+    fontSize: 12,
+  },
+  statusChipTextActive: {
+    color: '#5D4034',
+  },
+  feed: {
+    flex: 1,
+    minHeight: 0,
   },
   list: {
     paddingBottom: spacing.xxl,
@@ -537,7 +644,7 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     color: palette.heading,
-    fontSize: 16,
+    fontSize: 15,
   },
   sectionCount: {
     color: palette.body,
@@ -601,7 +708,7 @@ const styles = StyleSheet.create({
   center: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: spacing.xl,
+    paddingVertical: spacing.lg,
     gap: spacing.sm,
   },
   infoText: {
