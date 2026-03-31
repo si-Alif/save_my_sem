@@ -46,7 +46,7 @@ export default function LoginScreen() {
     <Screen style={styles.page}>
       <LinearGradient colors={['#EED9CB', '#F8EFE7']} style={styles.heroCard}>
         <Text style={styles.heroEyebrow}>WELCOME BACK</Text>
-        <Text style={styles.title} weight="700">Attendance Studio</Text>
+        <Text style={styles.title} weight="700">RescueMySemsester</Text>
         <Text style={styles.heroBody}>
           Pick up your routine where you left off and lock in today's class momentum.
         </Text>

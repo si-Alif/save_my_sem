@@ -279,7 +279,7 @@ export default function SummaryScreen() {
     <Screen style={styles.container}>
       <LinearGradient colors={['#EED9CB', '#F8EFE7']} style={styles.heroCard}>
         <Text style={styles.heroEyebrow}>COURSE AWARENESS</Text>
-        <Text weight="700" style={styles.heroTitle}>Attendance Studio</Text>
+        <Text weight="700" style={styles.heroTitle}>RescueMySemsester</Text>
         <Text style={styles.heroText}>
           Pick one course at a time and track where you are strong versus where you need more attention.
         </Text>
