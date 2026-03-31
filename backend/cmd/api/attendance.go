@@ -13,6 +13,12 @@ import (
 // markAttendanceHandler marks attendance for a user in a class session.
 // POST /v1/attendance
 func (app *application) markAttendanceHandler(w http.ResponseWriter, r *http.Request) {
+	authUser := app.GetUserFromSubsequentRequestContext(r)
+	if authUser.IsAnonymous() {
+		app.AuthenticationRequiredResponse(w, r)
+		return
+	}
+
 	var input struct {
 		UserID         int64   `json:"user_id"`
 		ClassSessionID int64   `json:"class_session_id"`
@@ -30,6 +36,8 @@ func (app *application) markAttendanceHandler(w http.ResponseWriter, r *http.Req
 	v := validator.New()
 	if input.UserID < 1 {
 		v.AddError("user_id", "must be a positive integer")
+	} else if input.UserID != authUser.ID {
+		v.AddError("user_id", "must match the authenticated user")
 	}
 	if input.ClassSessionID < 1 {
 		v.AddError("class_session_id", "must be a positive integer")
@@ -46,12 +54,14 @@ func (app *application) markAttendanceHandler(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	markedByUserID := authUser.ID
+
 	al := &data.AttendanceLog{
 		UserID:         input.UserID,
 		ClassSessionID: input.ClassSessionID,
 		Status:         input.Status,
 		Note:           input.Note,
-		MarkedByUserID: input.MarkedByUserID,
+		MarkedByUserID: &markedByUserID,
 	}
 
 	ctx := r.Context()

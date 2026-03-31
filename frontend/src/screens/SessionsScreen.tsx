@@ -32,7 +32,10 @@ const statusColors: Record<string, string> = {
   completed: palette.success,
   cancelled: palette.risk,
   rescheduled: palette.warning,
+  makeup: palette.warning,
 };
+
+type SessionLifecycle = 'today' | 'future' | 'past';
 
 function formatDate(dateStr: string) {
   if (!dateStr) return '—';
@@ -86,6 +89,18 @@ function parseSessionDateTime(sessionDate: string, startTime: string) {
   return Number.isNaN(dt.valueOf()) ? null : dt;
 }
 
+function extractYMD(sessionDate: string) {
+  const m = sessionDate.match(/(\d{4}-\d{2}-\d{2})/);
+  return m?.[1] ?? null;
+}
+
+function classifyLifecycle(sessionDate: string, todayYMD: string): SessionLifecycle {
+  const ymd = extractYMD(sessionDate);
+  if (!ymd) return 'future';
+  if (ymd === todayYMD) return 'today';
+  return ymd < todayYMD ? 'past' : 'future';
+}
+
 function relativeCountdown(target: Date, now: Date) {
   const diffMs = target.getTime() - now.getTime();
   if (diffMs <= 0) return 'now';
@@ -130,10 +145,12 @@ function weeklyTone(remainingCount: number) {
 export default function SessionsScreen() {
   const { userId, semesterKey } = useAuth();
   const route = useRoute<any>();
-  const [showUpcoming, setShowUpcoming] = useState(true);
+  const [showUpcoming, setShowUpcoming] = useState(false);
   const [selectedCourseID, setSelectedCourseID] = useState<number | null>(null);
   const queryClient = useQueryClient();
   const lastAppliedRouteCourseRef = useRef<number | null>(null);
+  const now = new Date();
+  const todayYMD = formatYMD(now);
 
   useEffect(() => {
     const incomingCourseID = route.params?.courseId;
@@ -198,6 +215,31 @@ export default function SessionsScreen() {
 
   const sessions = sessionsQuery.data?.sessions ?? [];
 
+  const orderedSessions = useMemo(() => {
+    const withLifecycle = sessions.map((session: any) => {
+      const lifecycle = classifyLifecycle(session.session_date, todayYMD);
+      const at = parseSessionDateTime(session.session_date, session.start_time);
+      return {
+        session,
+        lifecycle,
+        ts: at?.getTime() ?? 0,
+      };
+    });
+
+    withLifecycle.sort((a, b) => {
+      const rankA = a.lifecycle === 'today' ? 0 : a.lifecycle === 'future' ? 1 : 2;
+      const rankB = b.lifecycle === 'today' ? 0 : b.lifecycle === 'future' ? 1 : 2;
+      if (rankA !== rankB) return rankA - rankB;
+
+      if (a.lifecycle === 'past') {
+        return b.ts - a.ts;
+      }
+      return a.ts - b.ts;
+    });
+
+    return withLifecycle.map((item) => item.session);
+  }, [sessions, todayYMD]);
+
   const courseMeta = useMemo(() => {
     const map = new Map<number, { code?: string; name?: string }>();
     coursesQuery.data?.courses?.forEach((c: any) => {
@@ -220,11 +262,9 @@ export default function SessionsScreen() {
   }, [courseMeta, selectedCourseID]);
 
   const listEmptyMessage = selectedCourseID
-    ? 'No upcoming sessions for this course right now.'
+    ? 'No sessions for this course in this range.'
     : 'No sessions found for the selected range.';
 
-  const now = new Date();
-  const todayYMD = formatYMD(now);
   const weekEndYMD = formatYMD(getWeekEnd(now));
 
   const workloadQuery = useQuery({
@@ -297,13 +337,13 @@ export default function SessionsScreen() {
               style={[styles.toggleBtn, showUpcoming && styles.toggleBtnActive]}
               onPress={() => setShowUpcoming(true)}
             >
-              <Text style={[styles.toggleText, showUpcoming && styles.toggleTextActive]}>Upcoming</Text>
+              <Text style={[styles.toggleText, showUpcoming && styles.toggleTextActive]}>Upcoming only</Text>
             </Pressable>
             <Pressable
               style={[styles.toggleBtn, !showUpcoming && styles.toggleBtnActive]}
               onPress={() => setShowUpcoming(false)}
             >
-              <Text style={[styles.toggleText, !showUpcoming && styles.toggleTextActive]}>All range</Text>
+              <Text style={[styles.toggleText, !showUpcoming && styles.toggleTextActive]}>Smart order</Text>
             </Pressable>
           </View>
 
@@ -351,7 +391,7 @@ export default function SessionsScreen() {
 
         {!sessionsQuery.isLoading && !sessionsQuery.isError && (
           <FlatList
-            data={sessions}
+            data={orderedSessions}
             keyExtractor={(item) => String(item.id)}
             contentContainerStyle={styles.list}
             refreshControl={
@@ -362,7 +402,27 @@ export default function SessionsScreen() {
               />
             }
             renderItem={({ item, index }) => {
-              const badgeColor = statusColors[item.status] || palette.body;
+              const lifecycle = classifyLifecycle(item.session_date, todayYMD);
+              const statusLower = String(item.status || '').toLowerCase();
+              const isStatusLock = statusLower === 'cancelled' || statusLower === 'completed';
+              const canMarkToday = lifecycle === 'today' && !isStatusLock;
+              const actionLocked = !canMarkToday;
+
+              let badgeLabel = 'Today';
+              let badgeColor = palette.success;
+              if (lifecycle === 'future') {
+                badgeLabel = 'Pending';
+                badgeColor = palette.cool;
+              } else if (lifecycle === 'past') {
+                badgeLabel = 'Expired';
+                badgeColor = palette.risk;
+              }
+
+              if (lifecycle === 'today' && item.status && statusLower !== 'scheduled') {
+                badgeLabel = titleCase(statusLower);
+                badgeColor = statusColors[statusLower] || badgeColor;
+              }
+
               const meta = courseMeta.get(item.course_id) || {};
               const courseLabel = meta.code || `Course #${item.course_id}`;
               const nameLabel = meta.name || 'Untitled course';
@@ -383,45 +443,59 @@ export default function SessionsScreen() {
                         <Text style={styles.metaLine}>{item.location || 'TBD location'}</Text>
                       </View>
                       <View style={[styles.badge, { backgroundColor: `${badgeColor}1F` }]}>
-                        <Text style={{ color: badgeColor, fontWeight: '700', fontSize: 12 }}>{titleCase(item.status)}</Text>
+                        <Text style={{ color: badgeColor, fontWeight: '700', fontSize: 12 }}>{badgeLabel}</Text>
                       </View>
                     </View>
 
-                    <View style={styles.actionRow}>
-                      <Button
-                        label={busyCard ? 'Saving...' : 'Present'}
-                        variant="primary"
-                        onPress={() => onMark(item.id, 'present')}
-                        disabled={mutation.isPending}
-                        style={styles.actionBtn}
-                      />
-                      <Button
-                        label="Late"
-                        variant="secondary"
-                        onPress={() => onMark(item.id, 'late')}
-                        disabled={mutation.isPending}
-                        style={styles.actionBtn}
-                        labelStyle={{ color: palette.warning, fontWeight: '700' }}
-                      />
-                    </View>
-                    <View style={styles.actionRow}>
-                      <Button
-                        label="Absent"
-                        variant="secondary"
-                        onPress={() => onMark(item.id, 'absent')}
-                        disabled={mutation.isPending}
-                        style={styles.actionBtn}
-                        labelStyle={{ color: palette.risk, fontWeight: '700' }}
-                      />
-                      <Button
-                        label="Excused"
-                        variant="secondary"
-                        onPress={() => onMark(item.id, 'excused')}
-                        disabled={mutation.isPending}
-                        style={styles.actionBtn}
-                        labelStyle={{ color: palette.accent, fontWeight: '700' }}
-                      />
-                    </View>
+                    {!actionLocked && (
+                      <>
+                        <View style={styles.actionRow}>
+                          <Button
+                            label={busyCard ? 'Saving...' : 'Present'}
+                            variant="primary"
+                            onPress={() => onMark(item.id, 'present')}
+                            disabled={mutation.isPending}
+                            style={styles.actionBtn}
+                          />
+                          <Button
+                            label="Late"
+                            variant="secondary"
+                            onPress={() => onMark(item.id, 'late')}
+                            disabled={mutation.isPending}
+                            style={styles.actionBtn}
+                            labelStyle={{ color: palette.warning, fontWeight: '700' }}
+                          />
+                        </View>
+                        <View style={styles.actionRow}>
+                          <Button
+                            label="Absent"
+                            variant="secondary"
+                            onPress={() => onMark(item.id, 'absent')}
+                            disabled={mutation.isPending}
+                            style={styles.actionBtn}
+                            labelStyle={{ color: palette.risk, fontWeight: '700' }}
+                          />
+                          <Button
+                            label="Excused"
+                            variant="secondary"
+                            onPress={() => onMark(item.id, 'excused')}
+                            disabled={mutation.isPending}
+                            style={styles.actionBtn}
+                            labelStyle={{ color: palette.accent, fontWeight: '700' }}
+                          />
+                        </View>
+                      </>
+                    )}
+
+                    {actionLocked && (
+                      <Text style={styles.lockedNote}>
+                        {lifecycle === 'past'
+                          ? 'Expired: session day has passed.'
+                          : lifecycle === 'future'
+                            ? 'Pending: mark this on the session day.'
+                            : 'This session is locked by status.'}
+                      </Text>
+                    )}
                   </LinearGradient>
                 </Card>
               );
@@ -606,6 +680,12 @@ const styles = StyleSheet.create({
   },
   actionBtn: {
     flex: 1,
+  },
+  lockedNote: {
+    color: '#645750',
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: '600',
   },
   center: {
     alignItems: 'center',
