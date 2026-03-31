@@ -12,8 +12,6 @@ import { spacing } from '../theme';
 import { listUserSessions, markAttendance, listUserCourses } from '../lib/api';
 import { useAuth } from '../state/AuthProvider';
 
-const DEFAULT_FILTER_FROM = new Date().toISOString().slice(0, 10); // today, YYYY-MM-DD
-
 const palette = {
   page: '#F4EFE7',
   heading: '#2E2A27',
@@ -73,6 +71,12 @@ function getWeekEnd(date: Date) {
   const daysUntilSunday = (7 - day) % 7;
   d.setDate(d.getDate() + daysUntilSunday);
   d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function addDays(date: Date, days: number) {
+  const d = new Date(date);
+  d.setDate(d.getDate() + days);
   return d;
 }
 
@@ -151,6 +155,8 @@ export default function SessionsScreen() {
   const lastAppliedRouteCourseRef = useRef<number | null>(null);
   const now = new Date();
   const todayYMD = formatYMD(now);
+  const smartFromYMD = formatYMD(addDays(now, -30));
+  const smartToYMD = formatYMD(addDays(now, 90));
 
   useEffect(() => {
     const incomingCourseID = route.params?.courseId;
@@ -162,28 +168,44 @@ export default function SessionsScreen() {
 
   const sessionParams = useMemo(
     () => ({
-      from: showUpcoming ? DEFAULT_FILTER_FROM : undefined,
+      from: showUpcoming ? todayYMD : smartFromYMD,
+      to: smartToYMD,
+      sort: 'session_date',
       course_id: selectedCourseID || undefined,
       page_size: 100,
     }),
-    [showUpcoming, selectedCourseID]
+    [showUpcoming, selectedCourseID, smartFromYMD, smartToYMD, todayYMD]
   );
 
   const sessionsKey = useMemo(
-    () => ['sessions', userId, showUpcoming ? 'upcoming' : 'all', selectedCourseID ?? 'all'] as const,
-    [userId, showUpcoming, selectedCourseID]
+    () => ['sessions', userId, showUpcoming ? 'upcoming' : 'all', selectedCourseID ?? 'all', todayYMD] as const,
+    [userId, showUpcoming, selectedCourseID, todayYMD]
   );
 
   const sessionsQuery = useQuery({
     queryKey: sessionsKey,
-    queryFn: () => listUserSessions(userId!, sessionParams),
+    queryFn: () => listUserSessions(userId!, { ...sessionParams, page: 1 }),
     enabled: !!userId,
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    retry: (failureCount, error: any) => {
+      if (error?.status === 429) return false;
+      return failureCount < 2;
+    },
   });
 
   const coursesQuery = useQuery({
     queryKey: ['courses', userId, semesterKey, 'meta'],
     queryFn: () => listUserCourses(userId!, semesterKey),
     enabled: !!userId,
+    staleTime: 5 * 60_000,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    retry: (failureCount, error: any) => {
+      if (error?.status === 429) return false;
+      return failureCount < 2;
+    },
   });
 
   const mutation = useMutation({
@@ -267,22 +289,20 @@ export default function SessionsScreen() {
 
   const weekEndYMD = formatYMD(getWeekEnd(now));
 
-  const workloadQuery = useQuery({
-    queryKey: ['sessions-workload', userId, selectedCourseID ?? 'all', todayYMD, weekEndYMD],
-    queryFn: () =>
-      listUserSessions(userId!, {
-        from: todayYMD,
-        to: weekEndYMD,
-        course_id: selectedCourseID || undefined,
-        page_size: 100,
-      }),
-    enabled: !!userId,
-  });
-
-  const remainingThisWeek = workloadQuery.data?.sessions?.length ?? 0;
+  const remainingThisWeek = useMemo(() => {
+    return orderedSessions.filter((s: any) => {
+      const ymd = extractYMD(s.session_date);
+      if (!ymd) return false;
+      return ymd >= todayYMD && ymd <= weekEndYMD;
+    }).length;
+  }, [orderedSessions, todayYMD, weekEndYMD]);
 
   const nextClass = useMemo(() => {
-    const sessions = workloadQuery.data?.sessions || [];
+    const sessions = orderedSessions.filter((s: any) => {
+      const ymd = extractYMD(s.session_date);
+      if (!ymd) return false;
+      return ymd >= todayYMD && ymd <= weekEndYMD;
+    });
     const nowTs = now.getTime();
     const parsed = sessions
       .map((s: any) => ({
@@ -292,7 +312,7 @@ export default function SessionsScreen() {
       .filter((x) => x.at && x.at.getTime() >= nowTs) as Array<{ session: any; at: Date }>;
     parsed.sort((a, b) => a.at.getTime() - b.at.getTime());
     return parsed[0] || null;
-  }, [workloadQuery.data, now]);
+  }, [orderedSessions, todayYMD, weekEndYMD, now]);
 
   const weeklyMood = weeklyTone(remainingThisWeek);
   const meterPercent = Math.max(8, Math.min(100, remainingThisWeek * 12));
