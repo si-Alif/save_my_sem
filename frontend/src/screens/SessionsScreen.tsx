@@ -7,6 +7,7 @@ import { Screen } from '../components/Screen';
 import { Text } from '../components/Text';
 import { Card } from '../components/Card';
 import { Button } from '../components/Button';
+import { SemesterLockBanner } from '../components/SemesterLockBanner';
 import { spacing } from '../theme';
 import { listUserSessions, markAttendance, listUserCourses } from '../lib/api';
 import { useAuth } from '../state/AuthProvider';
@@ -284,6 +285,11 @@ export default function SessionsScreen() {
             </Text>
           </View>
         </LinearGradient>
+
+        <SemesterLockBanner
+          semesterKey={semesterKey}
+          hint="Only sessions and course filters tied to this semester are shown here."
+        />
 
         <View style={styles.topControls}>
           <View style={styles.toggleRow}>

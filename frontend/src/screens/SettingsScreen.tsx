@@ -1,11 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Screen } from '../components/Screen';
 import { Text } from '../components/Text';
 import { Button } from '../components/Button';
 import { useAuth } from '../state/AuthProvider';
 import { Card } from '../components/Card';
 import { View, StyleSheet, Pressable, TextInput } from 'react-native';
-import { colors, spacing } from '../theme';
+import { spacing } from '../theme';
 import {
   buildSemesterKey,
   DEFAULT_SEMESTER_KEY,
@@ -13,6 +14,18 @@ import {
   LEVEL_TERM_OPTIONS,
   parseSemesterKey,
 } from '../lib/semester';
+
+const palette = {
+  page: '#F4EFE7',
+  heading: '#2E2A27',
+  body: '#5E544D',
+  card: '#FFF9F2',
+  border: '#E9DCCF',
+  accent: '#6D4C64',
+  success: '#4E8D75',
+  warning: '#C77A4D',
+  risk: '#B04A4A',
+};
 
 export default function SettingsScreen() {
   const { logout, semesterKey, setSemesterKey } = useAuth();
@@ -23,6 +36,7 @@ export default function SettingsScreen() {
   const [batch, setBatch] = useState(parsed ? String(parsed.batch) : DEFAULT_SEMESTER_KEY.split(':')[1]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
 
   useEffect(() => {
     const nextParsed = parseSemesterKey(semesterKey);
@@ -35,16 +49,23 @@ export default function SettingsScreen() {
   const isValidPreview = isValidSemesterKey(preview);
   const dirty = preview !== semesterKey;
 
+  const activeLabel = dirty ? 'Unsaved changes' : 'Synced';
+
+  const saveToneColor = !isValidPreview ? palette.risk : dirty ? palette.warning : palette.success;
+
   const onSaveSemester = async () => {
     if (!isValidPreview) {
       setError('Use format level-term:batch, for example 2-1:2023.');
+      setInfo(null);
       return;
     }
 
     setSaving(true);
     setError(null);
+    setInfo(null);
     try {
       await setSemesterKey(preview);
+      setInfo('Semester scope updated. Courses, sessions, history, and summary are now aligned.');
     } catch (_err) {
       setError('Could not update semester. Try again.');
     } finally {
@@ -53,14 +74,28 @@ export default function SettingsScreen() {
   };
 
   return (
-    <Screen>
-      <Text weight="700" style={{ fontSize: 24 }}>
-        Settings
-      </Text>
+    <Screen style={styles.page}>
+      <LinearGradient colors={['#EED9CB', '#F8EFE7']} style={styles.heroCard}>
+        <Text style={styles.heroEyebrow}>SETTINGS</Text>
+        <Text weight="700" style={styles.heroTitle}>Control Center</Text>
+        <Text style={styles.heroBody}>
+          Keep one reliable semester scope so every page stays consistent with your academic timeline.
+        </Text>
+        <View style={styles.heroMetaRow}>
+          <View style={[styles.statusPill, { borderColor: saveToneColor }]}>
+            <Text weight="700" style={[styles.statusText, { color: saveToneColor }]}>{activeLabel}</Text>
+          </View>
+          <View style={styles.currentPill}>
+            <Text weight="700" style={styles.currentPillText}>{semesterKey}</Text>
+          </View>
+        </View>
+      </LinearGradient>
 
-      <Card style={styles.section}>
-        <Text weight="700">Academic semester</Text>
-        <Text muted>Pick your level-term and batch. This will drive course import and enrollment views.</Text>
+      <Card style={styles.sectionCard}>
+        <Text weight="700" style={styles.sectionTitle}>Academic Semester Scope</Text>
+        <Text style={styles.sectionBody}>
+          Choose level-term and batch in level-term:batch format, for example 2-1:2023.
+        </Text>
 
         <View style={styles.pillWrap}>
           {LEVEL_TERM_OPTIONS.map((option) => (
@@ -77,9 +112,10 @@ export default function SettingsScreen() {
         </View>
 
         <View style={styles.fieldGroup}>
-          <Text muted>Batch year</Text>
+          <Text style={styles.fieldLabel}>Batch year</Text>
           <TextInput
             placeholder="2023"
+            placeholderTextColor="#9A8D84"
             keyboardType="number-pad"
             value={batch}
             onChangeText={setBatch}
@@ -88,35 +124,111 @@ export default function SettingsScreen() {
           />
         </View>
 
-        <View style={styles.previewRow}>
-          <Text muted>Current</Text>
-          <Text weight="700">{semesterKey}</Text>
-        </View>
-        <View style={styles.previewRow}>
-          <Text muted>Preview</Text>
-          <Text weight="700">{preview}</Text>
+        <View style={styles.previewBlock}>
+          <View style={styles.previewRow}>
+            <Text style={styles.previewLabel}>Current</Text>
+            <Text weight="700" style={styles.previewValue}>{semesterKey}</Text>
+          </View>
+          <View style={styles.previewRow}>
+            <Text style={styles.previewLabel}>Preview</Text>
+            <Text weight="700" style={styles.previewValue}>{preview}</Text>
+          </View>
         </View>
 
-        {!isValidPreview ? <Text style={styles.errorText}>Enter a 4-digit batch year.</Text> : null}
+        {!isValidPreview ? <Text style={styles.errorText}>Enter a valid 4-digit batch year.</Text> : null}
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
+        {info ? <Text style={styles.infoText}>{info}</Text> : null}
 
         <Button
-          label={saving ? 'Saving…' : 'Save semester'}
+          label={saving ? 'Saving...' : 'Save semester scope'}
           onPress={onSaveSemester}
           disabled={!isValidPreview || !dirty || saving}
         />
       </Card>
 
-      <View style={styles.section}>
+      <Card style={styles.sectionCard}>
+        <Text weight="700" style={styles.sectionTitle}>Where This Applies</Text>
+        <Text style={styles.scopeLine}>Courses: only matching semester courses are shown for enrollment.</Text>
+        <Text style={styles.scopeLine}>Sessions: class feed and course chips are filtered to your semester.</Text>
+        <Text style={styles.scopeLine}>History & Summary: insights and trends stay aligned with active scope.</Text>
+      </Card>
+
+      <Card style={styles.sectionCard}>
+        <Text weight="700" style={styles.sectionTitle}>Account</Text>
+        <Text style={styles.sectionBody}>Log out when switching users on this device.</Text>
         <Button label="Log out" onPress={logout} variant="secondary" />
-      </View>
+      </Card>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  section: {
+  page: {
+    backgroundColor: palette.page,
+  },
+  heroCard: {
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: palette.border,
+    padding: spacing.xl,
+    gap: spacing.sm,
+  },
+  heroEyebrow: {
+    color: palette.accent,
+    letterSpacing: 1.2,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  heroTitle: {
+    color: palette.heading,
+    fontSize: 32,
+  },
+  heroBody: {
+    color: palette.body,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  heroMetaRow: {
+    marginTop: spacing.xs,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  statusPill: {
+    borderRadius: 999,
+    borderWidth: 1,
+    backgroundColor: 'rgba(255,255,255,0.72)',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 6,
+  },
+  statusText: {
+    fontSize: 12,
+  },
+  currentPill: {
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#D9B8A4',
+    backgroundColor: 'rgba(255,255,255,0.72)',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 6,
+  },
+  currentPillText: {
+    color: '#5D4034',
+    fontSize: 12,
+  },
+  sectionCard: {
+    backgroundColor: palette.card,
+    borderColor: palette.border,
     gap: spacing.md,
+  },
+  sectionTitle: {
+    color: palette.heading,
+    fontSize: 18,
+  },
+  sectionBody: {
+    color: palette.body,
+    fontSize: 13,
+    lineHeight: 20,
   },
   pillWrap: {
     flexDirection: 'row',
@@ -126,37 +238,65 @@ const styles = StyleSheet.create({
   pill: {
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
+    borderColor: palette.border,
+    backgroundColor: '#FFFDF9',
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs,
   },
   pillActive: {
-    borderColor: colors.primary,
-    backgroundColor: '#e8f0ff',
+    borderColor: '#C8AFA0',
+    backgroundColor: '#EED9CB',
   },
   pillText: {
-    color: colors.text,
+    color: '#4D413B',
   },
   pillTextActive: {
-    color: colors.primary,
+    color: '#5D4034',
   },
   fieldGroup: {
     gap: spacing.xs,
   },
+  fieldLabel: {
+    color: palette.body,
+    fontSize: 12,
+  },
   input: {
-    backgroundColor: colors.surface,
+    backgroundColor: '#FFFDF9',
     borderRadius: 12,
     padding: spacing.lg,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: palette.border,
+    color: '#3D332E',
+  },
+  previewBlock: {
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: '#FFFBF6',
+    padding: spacing.md,
+    gap: spacing.sm,
   },
   previewRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
+  previewLabel: {
+    color: palette.body,
+    fontSize: 12,
+  },
+  previewValue: {
+    color: '#4D413B',
+  },
   errorText: {
-    color: colors.danger,
+    color: palette.risk,
+  },
+  infoText: {
+    color: palette.success,
+  },
+  scopeLine: {
+    color: palette.body,
+    fontSize: 13,
+    lineHeight: 20,
   },
 });

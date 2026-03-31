@@ -6,6 +6,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Screen } from '../components/Screen';
 import { Text } from '../components/Text';
 import { Card } from '../components/Card';
+import { SemesterLockBanner } from '../components/SemesterLockBanner';
 import { spacing } from '../theme';
 import { getAttendanceSummary, listUserCourses, listUserSessions } from '../lib/api';
 import { Course } from '../lib/api/types';
@@ -283,6 +284,11 @@ export default function SummaryScreen() {
           Pick one course at a time and track where you are strong versus where you need more attention.
         </Text>
       </LinearGradient>
+
+      <SemesterLockBanner
+        semesterKey={semesterKey}
+        hint="Summary trends and calendar are scoped to this semester selection."
+      />
 
       {coursesQuery.isLoading && (
         <View style={styles.center}>
