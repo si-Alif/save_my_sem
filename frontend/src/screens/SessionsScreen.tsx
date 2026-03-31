@@ -12,7 +12,6 @@ import { listUserSessions, markAttendance, listUserCourses } from '../lib/api';
 import { useAuth } from '../state/AuthProvider';
 
 const DEFAULT_FILTER_FROM = new Date().toISOString().slice(0, 10); // today, YYYY-MM-DD
-const DEFAULT_SEMESTER = 'odd-2026';
 
 const palette = {
   page: '#F4EFE7',
@@ -128,7 +127,7 @@ function weeklyTone(remainingCount: number) {
 }
 
 export default function SessionsScreen() {
-  const { userId } = useAuth();
+  const { userId, semesterKey } = useAuth();
   const route = useRoute<any>();
   const [showUpcoming, setShowUpcoming] = useState(true);
   const [selectedCourseID, setSelectedCourseID] = useState<number | null>(null);
@@ -164,8 +163,8 @@ export default function SessionsScreen() {
   });
 
   const coursesQuery = useQuery({
-    queryKey: ['courses', userId, DEFAULT_SEMESTER, 'meta'],
-    queryFn: () => listUserCourses(userId!, DEFAULT_SEMESTER),
+    queryKey: ['courses', userId, semesterKey, 'meta'],
+    queryFn: () => listUserCourses(userId!, semesterKey),
     enabled: !!userId,
   });
 

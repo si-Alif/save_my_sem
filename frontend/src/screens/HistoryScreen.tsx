@@ -19,8 +19,6 @@ import { listUserAttendance, listUserCourses } from '../lib/api';
 import { AttendanceLog } from '../lib/api/types';
 import { useAuth } from '../state/AuthProvider';
 
-const DEFAULT_SEMESTER = 'odd-2026';
-
 type HistoryMode = 'cards' | 'timeline';
 type GroupBy = 'day' | 'course';
 type StatusFilter = 'all' | 'present' | 'late' | 'excused' | 'absent';
@@ -143,7 +141,7 @@ function sortByMarkedAtDesc(a: AttendanceLog, b: AttendanceLog) {
 }
 
 export default function HistoryScreen() {
-  const { userId } = useAuth();
+  const { userId, semesterKey } = useAuth();
   const [selectedCourseID, setSelectedCourseID] = useState<number | null>(null);
   const [selectedStatus, setSelectedStatus] = useState<StatusFilter>('all');
   const [mode, setMode] = useState<HistoryMode>('cards');
@@ -151,8 +149,8 @@ export default function HistoryScreen() {
   const [showFilters, setShowFilters] = useState(false);
 
   const coursesQuery = useQuery({
-    queryKey: ['courses', userId, DEFAULT_SEMESTER, 'history'],
-    queryFn: () => listUserCourses(userId!, DEFAULT_SEMESTER),
+    queryKey: ['courses', userId, semesterKey, 'history'],
+    queryFn: () => listUserCourses(userId!, semesterKey),
     enabled: !!userId,
   });
 

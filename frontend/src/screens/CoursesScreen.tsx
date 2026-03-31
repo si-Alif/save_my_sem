@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { ActivityIndicator, FlatList, StyleSheet, TextInput, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, TextInput, View } from 'react-native';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Screen } from '../components/Screen';
 import { Text } from '../components/Text';
@@ -10,58 +10,83 @@ import { listUserCourses, listAllCourses } from '../lib/api/courses';
 import { postJson } from '../lib/api';
 import { useAuth } from '../state/AuthProvider';
 
-const DEFAULT_SEMESTER = 'odd-2026';
+function normalizeCourseCode(value: string) {
+  return value.trim().toUpperCase();
+}
 
 export default function CoursesScreen() {
-  const { userId } = useAuth();
+  const { userId, semesterKey } = useAuth();
   const [courseCode, setCourseCode] = useState('');
   const [section, setSection] = useState('A');
+  const [feedback, setFeedback] = useState<string | null>(null);
 
   const catalogQuery = useQuery({
-    queryKey: ['course-catalog'],
-    queryFn: () => listAllCourses(),
+    queryKey: ['course-catalog', semesterKey],
+    queryFn: () => listAllCourses(semesterKey),
+    enabled: !!semesterKey,
   });
 
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['courses', userId, DEFAULT_SEMESTER],
-    queryFn: () => listUserCourses(userId!, DEFAULT_SEMESTER),
+    queryKey: ['courses', userId, semesterKey],
+    queryFn: () => listUserCourses(userId!, semesterKey),
     enabled: !!userId,
   });
 
   const courses = data?.courses ?? [];
 
   const enrollMutation = useMutation({
-    mutationFn: () =>
+    mutationFn: (rawCourseCode: string) =>
       postJson('/v1/courses/enroll', {
         user_id: userId,
-        course_code: courseCode.trim(),
-        semester: DEFAULT_SEMESTER,
-        section: section.trim() || 'A',
+        course_code: normalizeCourseCode(rawCourseCode),
+        semester: semesterKey,
+        section: section.trim().toUpperCase() || 'A',
       }),
-    onSuccess: () => {
+    onSuccess: (_data, rawCourseCode) => {
       setCourseCode('');
+      setFeedback(`Enrolled in ${normalizeCourseCode(rawCourseCode)}.`);
       refetch();
+      catalogQuery.refetch();
+    },
+    onError: () => {
+      setFeedback('Could not enroll. Check course code and section.');
     },
   });
 
-  const catalogLookup = useMemo(() => {
-    const map = new Map<string, { name?: string; credit_hours?: number; course_type?: string }>();
-    catalogQuery.data?.courses?.forEach((c: any) => map.set((c.course_code || c.code || '').toUpperCase(), c));
-    return map;
-  }, [catalogQuery.data]);
+  const enrolledCodes = useMemo(() => {
+    const set = new Set<string>();
+    courses.forEach((course) => {
+      if (course.course_code) set.add(normalizeCourseCode(course.course_code));
+    });
+    return set;
+  }, [courses]);
+
+  const availableCourses = useMemo(() => {
+    const catalog = catalogQuery.data?.courses ?? [];
+    return catalog.filter((course) => !enrolledCodes.has(normalizeCourseCode(course.code || course.course_code || '')));
+  }, [catalogQuery.data, enrolledCodes]);
+
+  const handleEnroll = (rawCourseCode: string) => {
+    const normalized = normalizeCourseCode(rawCourseCode);
+    if (!normalized || enrollMutation.isPending) return;
+    setFeedback(null);
+    enrollMutation.mutate(normalized);
+  };
 
   return (
-    <Screen scroll={false}>
+    <Screen>
       <View style={styles.headerRow}>
         <Text weight="700" style={styles.title}>
           Courses
         </Text>
-        <Text muted>{DEFAULT_SEMESTER}</Text>
+        <Text muted>{semesterKey}</Text>
       </View>
 
+      <Text muted>Set semester from Settings using level-term:batch (example: 2-1:2023).</Text>
+
       <Card style={styles.enrollCard}>
-        <Text weight="700">Enroll in a course</Text>
-        <Text muted>Enter course code from catalog (e.g., CSE1201) and section.</Text>
+        <Text weight="700">Quick enroll</Text>
+        <Text muted>Enter course code and section for the selected semester.</Text>
         <TextInput
           placeholder="Course code"
           value={courseCode}
@@ -78,13 +103,45 @@ export default function CoursesScreen() {
         />
         <Button
           label={enrollMutation.isPending ? 'Enrolling…' : 'Enroll'}
-          onPress={() => enrollMutation.mutate()}
+          onPress={() => handleEnroll(courseCode)}
           disabled={!courseCode.trim() || enrollMutation.isPending}
         />
-        {enrollMutation.isError ? (
-          <Text style={{ color: colors.danger }}>Could not enroll. Check code/section.</Text>
+        {feedback ? <Text style={{ color: feedback.startsWith('Enrolled') ? colors.success : colors.danger }}>{feedback}</Text> : null}
+      </Card>
+
+      <Card style={styles.sectionCard}>
+        <Text weight="700">Available in {semesterKey}</Text>
+        {catalogQuery.isLoading ? (
+          <View style={styles.center}>
+            <ActivityIndicator color={colors.primary} />
+          </View>
         ) : null}
-        {enrollMutation.isSuccess ? <Text style={{ color: colors.success }}>Enrolled!</Text> : null}
+
+        {!catalogQuery.isLoading && availableCourses.length === 0 ? (
+          <Text muted>All available courses for this semester are already enrolled or no matches were found.</Text>
+        ) : null}
+
+        {availableCourses.map((item) => {
+          const code = item.code || item.course_code || `Course #${item.id}`;
+          return (
+            <View key={String(item.id)} style={styles.courseRow}>
+              <View style={{ flex: 1, gap: 2 }}>
+                <Text weight="700">{code}</Text>
+                <Text>{item.name || item.course_name || 'Unnamed course'}</Text>
+                <Text muted>
+                  {(item.credit_hours ?? '?')} credit hrs · {item.course_type || 'course'}
+                </Text>
+              </View>
+              <Button
+                label={enrollMutation.isPending && normalizeCourseCode(code) === normalizeCourseCode(String(enrollMutation.variables || '')) ? '...' : 'Enroll'}
+                onPress={() => handleEnroll(code)}
+                disabled={enrollMutation.isPending}
+                style={styles.smallButton}
+                labelStyle={styles.smallButtonLabel}
+              />
+            </View>
+          );
+        })}
       </Card>
 
       {isLoading && (
@@ -103,26 +160,25 @@ export default function CoursesScreen() {
       )}
 
       {!isLoading && !isError && (
-        <FlatList
-          data={courses}
-          contentContainerStyle={styles.list}
-          keyExtractor={(item) => String(item.id)}
-          renderItem={({ item }) => (
-            <Card style={styles.card}>
-              <Text weight="700">{item.course_code || `Course #${item.course_id}`}</Text>
-              <Text>{item.course_name || catalogLookup.get((item.course_code || '').toUpperCase())?.name || 'Unnamed course'}</Text>
-              <Text muted>
-                {(item.credit_hours ?? catalogLookup.get((item.course_code || '').toUpperCase())?.credit_hours ?? '?')} credit hrs · {item.course_type || catalogLookup.get((item.course_code || '').toUpperCase())?.course_type || 'course'}
-              </Text>
-              <Text muted>Section {item.section} · Status: {item.status}</Text>
-            </Card>
+        <Card style={styles.sectionCard}>
+          <Text weight="700">Your enrolled courses</Text>
+          {courses.length === 0 ? (
+            <Text muted>No courses enrolled yet for this semester.</Text>
+          ) : (
+            courses.map((item) => (
+              <View key={String(item.id)} style={styles.courseRow}>
+                <View style={{ flex: 1, gap: 2 }}>
+                  <Text weight="700">{item.course_code || `Course #${item.course_id}`}</Text>
+                  <Text>{item.course_name || 'Unnamed course'}</Text>
+                  <Text muted>
+                    {(item.credit_hours ?? '?')} credit hrs · {item.course_type || 'course'}
+                  </Text>
+                  <Text muted>Section {item.section} · Status: {item.status}</Text>
+                </View>
+              </View>
+            ))
           )}
-          ListEmptyComponent={
-            <View style={styles.center}>
-              <Text muted>No courses found for this semester.</Text>
-            </View>
-          }
-        />
+        </Card>
       )}
     </Screen>
   );
@@ -141,12 +197,18 @@ const styles = StyleSheet.create({
   enrollCard: {
     gap: spacing.sm,
   },
-  list: {
-    paddingBottom: spacing.xxl,
-    gap: spacing.md,
+  sectionCard: {
+    gap: spacing.sm,
   },
-  card: {
-    gap: spacing.xs,
+  courseRow: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 12,
+    backgroundColor: colors.surface,
+    padding: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
   },
   center: {
     alignItems: 'center',
@@ -159,5 +221,12 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     borderWidth: 1,
     borderColor: colors.border,
+  },
+  smallButton: {
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+  },
+  smallButtonLabel: {
+    fontSize: 13,
   },
 });

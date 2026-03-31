@@ -11,8 +11,6 @@ import { getAttendanceSummary, listUserCourses, listUserSessions } from '../lib/
 import { Course } from '../lib/api/types';
 import { useAuth } from '../state/AuthProvider';
 
-const DEFAULT_SEMESTER = 'odd-2026';
-
 const palette = {
   page: '#F4EFE7',
   heading: '#2E2A27',
@@ -130,13 +128,13 @@ function monthName(date: Date) {
 }
 
 export default function SummaryScreen() {
-  const { userId } = useAuth();
+  const { userId, semesterKey } = useAuth();
   const navigation = useNavigation<any>();
   const [selectedCourseID, setSelectedCourseID] = useState<number | null>(null);
 
   const coursesQuery = useQuery({
-    queryKey: ['courses', userId, DEFAULT_SEMESTER, 'summary'],
-    queryFn: () => listUserCourses(userId!, DEFAULT_SEMESTER),
+    queryKey: ['courses', userId, semesterKey, 'summary'],
+    queryFn: () => listUserCourses(userId!, semesterKey),
     enabled: !!userId,
   });
 

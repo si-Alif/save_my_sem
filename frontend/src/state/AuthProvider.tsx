@@ -4,10 +4,13 @@ import * as SecureStore from 'expo-secure-store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { postJson } from '../lib/api/client';
 import { TokenResponse } from '../lib/api/types';
+import { DEFAULT_SEMESTER_KEY, isValidSemesterKey, normalizeSemesterKey } from '../lib/semester';
 
 interface AuthState {
   token: string | null;
   userId: number | null;
+  semesterKey: string;
+  setSemesterKey: (semesterKey: string) => Promise<void>;
   login: (params: { email: string; password: string; userId?: number }) => Promise<void>;
   logout: () => Promise<void>;
   loading: boolean;
@@ -16,6 +19,7 @@ interface AuthState {
 const AuthContext = createContext<AuthState | undefined>(undefined);
 
 const hasSecureStore = Platform.OS !== 'web' && typeof SecureStore?.getItemAsync === 'function';
+const semesterStorageKey = 'semester_key';
 
 async function persistToken(token: string | null) {
   if (token) {
@@ -39,34 +43,59 @@ async function persistUserId(userId: number | null) {
   }
 }
 
+async function persistSemesterKey(semesterKey: string) {
+  await AsyncStorage.setItem(semesterStorageKey, semesterKey);
+}
+
+function readSemesterKeyOrDefault(value: string | null) {
+  if (!value) return DEFAULT_SEMESTER_KEY;
+  const normalized = normalizeSemesterKey(value);
+  return isValidSemesterKey(normalized) ? normalized : DEFAULT_SEMESTER_KEY;
+}
+
 async function loadSession() {
   try {
-    const [secureToken, asyncToken, userIdStr] = await Promise.all([
+    const [secureToken, asyncToken, userIdStr, storedSemesterKey] = await Promise.all([
       hasSecureStore ? SecureStore.getItemAsync('auth_token') : Promise.resolve<string | null>(null),
       AsyncStorage.getItem('auth_token'),
       AsyncStorage.getItem('user_id'),
+      AsyncStorage.getItem(semesterStorageKey),
     ]);
     const token = secureToken ?? asyncToken ?? null;
-    return { token, userId: userIdStr ? Number(userIdStr) : null };
+    return {
+      token,
+      userId: userIdStr ? Number(userIdStr) : null,
+      semesterKey: readSemesterKeyOrDefault(storedSemesterKey),
+    };
   } catch (err) {
     console.warn('Session restore failed, falling back to AsyncStorage only', err);
-    const [token, userIdStr] = await Promise.all([AsyncStorage.getItem('auth_token'), AsyncStorage.getItem('user_id')]);
-    return { token: token ?? null, userId: userIdStr ? Number(userIdStr) : null };
+    const [token, userIdStr, storedSemesterKey] = await Promise.all([
+      AsyncStorage.getItem('auth_token'),
+      AsyncStorage.getItem('user_id'),
+      AsyncStorage.getItem(semesterStorageKey),
+    ]);
+    return {
+      token: token ?? null,
+      userId: userIdStr ? Number(userIdStr) : null,
+      semesterKey: readSemesterKeyOrDefault(storedSemesterKey),
+    };
   }
 }
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [token, setToken] = useState<string | null>(null);
   const [userId, setUserId] = useState<number | null>(null);
+  const [semesterKey, setSemesterKeyState] = useState<string>(DEFAULT_SEMESTER_KEY);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let mounted = true;
     loadSession()
-      .then(({ token, userId }) => {
+      .then(({ token, userId, semesterKey }) => {
         if (!mounted) return;
         setToken(token);
         setUserId(userId);
+        setSemesterKeyState(semesterKey);
       })
       .catch((err) => {
         console.warn('Session load error', err);
@@ -103,7 +132,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await persistUserId(null);
   };
 
-  const value = useMemo(() => ({ token, userId, login, logout, loading }), [token, userId, loading]);
+  const setSemesterKey = async (nextSemesterKey: string) => {
+    const normalized = normalizeSemesterKey(nextSemesterKey);
+    if (!isValidSemesterKey(normalized)) {
+      throw new Error('Semester format must be level-term:batch (e.g., 2-1:2023)');
+    }
+    setSemesterKeyState(normalized);
+    await persistSemesterKey(normalized);
+  };
+
+  const value = useMemo(
+    () => ({ token, userId, semesterKey, setSemesterKey, login, logout, loading }),
+    [token, userId, semesterKey, loading]
+  );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };

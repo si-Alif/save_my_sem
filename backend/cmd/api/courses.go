@@ -3,10 +3,47 @@ package main
 import (
 	"errors"
 	"net/http"
+	"regexp"
+	"strconv"
+	"strings"
 
 	"rescmysem.student.net/internal/data"
 	"rescmysem.student.net/internal/validator"
 )
+
+var semesterKeyPattern = regexp.MustCompile(`^([1-8])-(1|2):\d{4}$`)
+var courseDigitsPattern = regexp.MustCompile(`(\d{4})`)
+
+func parseLevelTermFromSemesterKey(raw string) (int, int, error) {
+	clean := strings.TrimSpace(raw)
+	matches := semesterKeyPattern.FindStringSubmatch(clean)
+	if len(matches) != 3 {
+		return 0, 0, errors.New("semester must be in level-term:batch format (example: 2-1:2023)")
+	}
+
+	level, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return 0, 0, errors.New("invalid level in semester key")
+	}
+
+	term, err := strconv.Atoi(matches[2])
+	if err != nil {
+		return 0, 0, errors.New("invalid term in semester key")
+	}
+
+	return level, term, nil
+}
+
+func courseMatchesLevelTerm(courseCode string, level int, term int) bool {
+	digits := courseDigitsPattern.FindString(courseCode)
+	if len(digits) != 4 {
+		return false
+	}
+
+	codeLevel := int(digits[0] - '0')
+	codeTerm := int(digits[1] - '0')
+	return codeLevel == level && codeTerm == term
+}
 
 // listCoursesHandler returns all available courses from the catalog.
 // GET /v1/courses
@@ -17,6 +54,24 @@ func (app *application) listCoursesHandler(w http.ResponseWriter, r *http.Reques
 		app.serverErrorResponse(w, r, err)
 		return
 	}
+
+	semesterKey := r.URL.Query().Get("semester")
+	if semesterKey != "" {
+		level, term, err := parseLevelTermFromSemesterKey(semesterKey)
+		if err != nil {
+			app.badRequestResponse(w, r, err)
+			return
+		}
+
+		filtered := make([]data.Course, 0, len(courses))
+		for _, course := range courses {
+			if courseMatchesLevelTerm(course.Code, level, term) {
+				filtered = append(filtered, course)
+			}
+		}
+		courses = filtered
+	}
+
 	if courses == nil {
 		courses = []data.Course{}
 	}
